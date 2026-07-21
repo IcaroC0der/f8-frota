@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends { id: string }">
-import { computed, ref } from "vue";
-import { Pencil, Trash2, Search } from "lucide-vue-next";
+import { computed, ref, watch } from "vue";
+import { Pencil, Trash2, Search, ChevronLeft, ChevronRight } from "lucide-vue-next";
 import Button from "./Button.vue";
 import Modal from "./Modal.vue";
 
@@ -18,12 +18,14 @@ const props = withDefaults(
     emptyMessage?: string;
     editable?: boolean;
     deletable?: boolean;
+    pageSize?: number;
   }>(),
   {
     searchPlaceholder: "Buscar...",
     emptyMessage: "Nenhum registro encontrado",
     editable: true,
     deletable: true,
+    pageSize: 10,
   },
 );
 
@@ -31,6 +33,7 @@ const emit = defineEmits<{ edit: [row: T]; delete: [id: string] }>();
 
 const search = ref("");
 const deleteId = ref<string | null>(null);
+const currentPage = ref(1);
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase().trim();
@@ -42,6 +45,33 @@ const filtered = computed(() => {
     }),
   );
 });
+
+const totalPages = computed(() => {
+  if (!props.pageSize) return 1;
+  return Math.max(1, Math.ceil(filtered.value.length / props.pageSize));
+});
+
+const paginated = computed(() => {
+  if (!props.pageSize) return filtered.value;
+  const start = (currentPage.value - 1) * props.pageSize;
+  return filtered.value.slice(start, start + props.pageSize);
+});
+
+const pageNumbers = computed(() => {
+  const t = totalPages.value, c = currentPage.value;
+  const out: (number | "...")[] = [];
+  for (let p = 1; p <= t; p++) {
+    if (p === 1 || p === t || Math.abs(p - c) <= 1) {
+      if (out.length && (out[out.length - 1] as number) < p - 1) out.push("...");
+      out.push(p);
+    }
+  }
+  return out;
+});
+
+watch([search, () => props.data], () => {
+  currentPage.value = 1;
+}, { deep: true });
 
 function confirmDelete() {
   if (deleteId.value) emit("delete", deleteId.value);
@@ -79,13 +109,13 @@ function confirmDelete() {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="filtered.length === 0">
+          <tr v-if="paginated.length === 0">
             <td :colspan="columns.length + 1" class="py-12 text-center text-muted-foreground">
               {{ emptyMessage }}
             </td>
           </tr>
           <tr
-            v-for="row in filtered"
+            v-for="row in paginated"
             :key="row.id"
             class="border-b transition-colors duration-200 hover:bg-primary/[0.06]"
           >
@@ -114,8 +144,18 @@ function confirmDelete() {
       </table>
     </div>
 
-    <div class="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-      {{ filtered.length }} de {{ data.length }} registro(s)
+    <div class="flex flex-col items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2.5 sm:flex-row">
+      <span class="text-xs text-muted-foreground">{{ filtered.length }} de {{ data.length }} registro(s)</span>
+      <div v-if="pageSize && totalPages > 1" class="flex items-center gap-1">
+        <button class="pg" :disabled="currentPage === 1" @click="currentPage = 1">«</button>
+        <button class="pg" :disabled="currentPage === 1" @click="currentPage--">‹</button>
+        <template v-for="(p, i) in pageNumbers" :key="i">
+          <span v-if="p === '...'" class="px-1.5 text-xs text-muted-foreground">…</span>
+          <button v-else class="pg" :class="p === currentPage && 'border-primary bg-primary text-primary-foreground'" @click="currentPage = (p as number)">{{ p }}</button>
+        </template>
+        <button class="pg" :disabled="currentPage === totalPages" @click="currentPage++">›</button>
+        <button class="pg" :disabled="currentPage === totalPages" @click="currentPage = totalPages">»</button>
+      </div>
     </div>
 
     <Modal
@@ -131,3 +171,9 @@ function confirmDelete() {
     </Modal>
   </div>
 </template>
+
+<style scoped>
+.pg {
+  @apply flex h-7 min-w-[1.75rem] items-center justify-center rounded-md border bg-card px-1.5 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40;
+}
+</style>
