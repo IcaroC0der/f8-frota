@@ -1,0 +1,6 @@
+"cost_type","cost_name","is_active","id","created_date","updated_date","created_by_id","created_by","is_sample"
+"DIESEL (T)","TANQUE","true","6a08602ced848fbe8956bf55","2026-05-16T12:16:44.525000","2026-06-16T18:18:54.102000","6a0720445c9dd6ed8a2275ed","grupof8.ely2026@gmail.com","false"
+"DIESEL (P)","COMBUSTÍVEIS","true","6a08561fbb30fe038d42a3f4","2026-05-16T11:33:51.221000","2026-06-16T18:18:57.165000","6a0720445c9dd6ed8a2275ed","grupof8.ely2026@gmail.com","false"
+"ARLA","COMBUSTÍVEIS","true","6a0720885c9dd6ed8a2275fc","2026-05-15T13:32:56.954000","2026-05-15T13:32:56.954000","6a0720445c9dd6ed8a2275ed","grupof8.ely2026@gmail.com","false"
+"ETANOL","COMBUSTÍVEIS","true","6a0720885c9dd6ed8a2275fe","2026-05-15T13:32:56.954000","2026-05-15T13:32:56.954000","6a0720445c9dd6ed8a2275ed","grupof8.ely2026@gmail.com","false"
+"GASOLINA","COMBUSTÍVEIS","true","6a0720885c9dd6ed8a2275ff","2026-05-15T13:32:56.954000","2026-05-15T13:32:56.954000","6a0720445c9dd6ed8a2275ed","grupof8.ely2026@gmail.com","false"

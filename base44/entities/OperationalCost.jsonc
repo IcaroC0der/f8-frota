@@ -1,0 +1,21 @@
+{
+  "name": "OperationalCost",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nome do custo operacional"
+    },
+    "description": {
+      "type": "string",
+      "description": "Descri\u00e7\u00e3o do custo"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

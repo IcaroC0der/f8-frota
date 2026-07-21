@@ -1,0 +1,27 @@
+{
+  "name": "MaintenanceCostType",
+  "type": "object",
+  "properties": {
+    "classification": {
+      "type": "string",
+      "description": "Classifica\u00e7\u00e3o vinculada (Preventivo/Corretivo)"
+    },
+    "cost_group": {
+      "type": "string",
+      "description": "Grupo de custo (Pneu, Pe\u00e7as, Servi\u00e7os)"
+    },
+    "cost_type": {
+      "type": "string",
+      "description": "Tipo de custo espec\u00edfico"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "classification",
+    "cost_group",
+    "cost_type"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "MaintenanceClassification",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nome da classifica\u00e7\u00e3o (Preventivo/Corretivo)"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

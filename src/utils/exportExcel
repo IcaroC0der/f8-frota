@@ -1,0 +1,128 @@
+/**
+ * Exporta dados para Excel (XLSX) sem dependência externa,
+ * usando formato XML do Excel 2003 (SpreadsheetML) — suportado por Excel, LibreOffice, Google Sheets.
+ */
+
+const fmtCurrency = (v) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+function escapeXml(val) {
+  if (val == null) return '';
+  return String(val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function cell(value, type = 'String') {
+  return `<Cell><Data ss:Type="${type}">${escapeXml(value)}</Data></Cell>`;
+}
+
+function numCell(value) {
+  const num = Number(value);
+  return `<Cell><Data ss:Type="Number">${isNaN(num) ? 0 : num}</Data></Cell>`;
+}
+
+function headerCell(label) {
+  return `<Cell ss:StyleID="header"><Data ss:Type="String">${escapeXml(label)}</Data></Cell>`;
+}
+
+function buildSheet(name, headers, rows) {
+  const headerRow = `<Row>${headers.map(h => headerCell(h)).join('')}</Row>`;
+  const dataRows = rows.map(cols =>
+    `<Row>${cols.map(c => c).join('')}</Row>`
+  ).join('\n');
+  return `<Worksheet ss:Name="${escapeXml(name)}">
+    <Table>
+      ${headerRow}
+      ${dataRows}
+    </Table>
+  </Worksheet>`;
+}
+
+export function exportToExcel({ filtered, filename = 'relatorio' }) {
+  const dateStr = (d) => {
+    if (!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('pt-BR');
+  };
+
+  // Sheet 1: Lançamentos
+  const lancHeaders = ['Data', 'Tipo', 'Categoria', 'Placa', 'Modelo', 'Fornecedor', 'Custo / Classificação', 'NF', 'KM', 'Valor (R$)'];
+  const lancRows = filtered.map(r => [
+    cell(dateStr(r.date)),
+    cell(r._type || ''),
+    cell(r._category || ''),
+    cell(r.plate || ''),
+    cell(r.vehicle_model || ''),
+    cell(r.supplier || ''),
+    cell(r.cost_name || r.cost_type || r.classification || ''),
+    cell(r.invoice_number || ''),
+    numCell(r.km || ''),
+    numCell(r.total_value || 0),
+  ]);
+
+  // Sheet 2: Resumo por Placa
+  const plateMap = {};
+  filtered.forEach(r => {
+    const plate = r.plate || 'Sem placa';
+    if (!plateMap[plate]) plateMap[plate] = { plate, model: r.vehicle_model || '', fuel: 0, maint: 0, op: 0, total: 0, count: 0 };
+    const val = r.total_value || 0;
+    plateMap[plate].total += val;
+    plateMap[plate].count++;
+    if (r._type === 'Abastecimento') plateMap[plate].fuel += val;
+    else if (r._type === 'Manutenção') plateMap[plate].maint += val;
+    else if (r._type === 'Operacional') plateMap[plate].op += val;
+  });
+  const plateList = Object.values(plateMap).sort((a, b) => b.total - a.total);
+  const grandTotal = plateList.reduce((s, p) => s + p.total, 0);
+
+  const resumoHeaders = ['Placa', 'Lançamentos', 'Abastecimento (R$)', 'Manutenção (R$)', 'Operacional (R$)', 'Total (R$)', '% do Total'];
+  const resumoRows = plateList.map(p => [
+    cell(p.plate),
+    numCell(p.count),
+    numCell(p.fuel),
+    numCell(p.maint),
+    numCell(p.op),
+    numCell(p.total),
+    cell(grandTotal > 0 ? ((p.total / grandTotal) * 100).toFixed(2) + '%' : '0%'),
+  ]);
+  // Total row
+  resumoRows.push([
+    cell('TOTAL GERAL'),
+    numCell(filtered.length),
+    numCell(plateList.reduce((s, p) => s + p.fuel, 0)),
+    numCell(plateList.reduce((s, p) => s + p.maint, 0)),
+    numCell(plateList.reduce((s, p) => s + p.op, 0)),
+    numCell(grandTotal),
+    cell('100%'),
+  ]);
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <Styles>
+    <Style ss:ID="header">
+      <Font ss:Bold="1"/>
+      <Interior ss:Color="#2563EB" ss:Pattern="Solid"/>
+      <Font ss:Bold="1" ss:Color="#FFFFFF"/>
+    </Style>
+  </Styles>
+  ${buildSheet('Lançamentos', lancHeaders, lancRows)}
+  ${buildSheet('Resumo por Placa', resumoHeaders, resumoRows)}
+</Workbook>`;
+
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

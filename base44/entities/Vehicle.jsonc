@@ -1,0 +1,56 @@
+{
+  "name": "Vehicle",
+  "type": "object",
+  "properties": {
+    "plate": {
+      "type": "string",
+      "description": "Placa do ve\u00edculo"
+    },
+    "category_name": {
+      "type": "string",
+      "description": "Nome da categoria vinculada"
+    },
+    "category_id": {
+      "type": "string",
+      "description": "ID da categoria vinculada"
+    },
+    "vehicle_model": {
+      "type": "string",
+      "description": "Modelo/descri\u00e7\u00e3o do ve\u00edculo"
+    },
+    "chassis": {
+      "type": "string",
+      "description": "N\u00famero do chassi"
+    },
+    "renavan": {
+      "type": "string",
+      "description": "N\u00famero RENAVAN"
+    },
+    "year": {
+      "type": "string",
+      "description": "Ano do ve\u00edculo"
+    },
+    "company": {
+      "type": "string",
+      "description": "Empresa propriet\u00e1ria"
+    },
+    "driver": {
+      "type": "string",
+      "description": "Motorista respons\u00e1vel"
+    },
+    "tracker": {
+      "type": "boolean",
+      "default": false,
+      "description": "Possui rastreador"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Ve\u00edculo ativo na frota"
+    }
+  },
+  "required": [
+    "plate",
+    "category_name"
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "name": "FuelRecord",
+  "type": "object",
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Data do abastecimento"
+    },
+    "invoice_number": {
+      "type": "string",
+      "description": "N\u00famero da nota fiscal"
+    },
+    "supplier": {
+      "type": "string",
+      "description": "Fornecedor"
+    },
+    "plate": {
+      "type": "string",
+      "description": "Placa do ve\u00edculo"
+    },
+    "vehicle_model": {
+      "type": "string",
+      "description": "Modelo do ve\u00edculo"
+    },
+    "category_name": {
+      "type": "string",
+      "description": "Categoria do ve\u00edculo"
+    },
+    "category_id": {
+      "type": "string",
+      "description": "ID da categoria do ve\u00edculo"
+    },
+    "cost_name": {
+      "type": "string",
+      "description": "Custo (ex: TANQUE, COMBUST\u00cdVEIS)"
+    },
+    "cost_type": {
+      "type": "string",
+      "description": "Tipo de custo (ex: DIESEL, GASOLINA)"
+    },
+    "km": {
+      "type": "number",
+      "description": "Quilometragem"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Quantidade abastecida"
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "LT",
+        "UN"
+      ],
+      "default": "LT",
+      "description": "Unidade (LT ou UN)"
+    },
+    "total_value": {
+      "type": "number",
+      "description": "Valor total"
+    },
+    "observation": {
+      "type": "string",
+      "description": "Observa\u00e7\u00e3o"
+    }
+  },
+  "required": [
+    "date",
+    "plate",
+    "cost_name",
+    "cost_type",
+    "quantity",
+    "total_value"
+  ]
+}

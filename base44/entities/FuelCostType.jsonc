@@ -1,0 +1,22 @@
+{
+  "name": "FuelCostType",
+  "type": "object",
+  "properties": {
+    "cost_name": {
+      "type": "string",
+      "description": "Nome do custo (ex: Combust\u00edveis)"
+    },
+    "cost_type": {
+      "type": "string",
+      "description": "Tipo de custo (ex: Diesel, Gasolina)"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "cost_name",
+    "cost_type"
+  ]
+}
