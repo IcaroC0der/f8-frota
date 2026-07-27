@@ -1,6 +1,7 @@
 """Configuração central da aplicação (lida de variáveis de ambiente / .env)."""
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,19 @@ class Settings(BaseSettings):
 
     # Banco
     DATABASE_URL: str = "postgresql+psycopg://frota:frota@localhost:5432/frota_f8"
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        """Aceita a URL crua entregue por Neon/Render/Supabase (``postgres://`` ou
+        ``postgresql://``) e garante o driver psycopg v3 que a app usa
+        (``postgresql+psycopg://``). Assim dá para colar a connection string do
+        provedor direto na variável de ambiente, sem editar à mão."""
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://"):]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://"):]
+        return v
 
     # JWT
     SECRET_KEY: str = "dev-secret-change-me"

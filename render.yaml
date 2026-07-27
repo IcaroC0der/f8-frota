@@ -1,0 +1,41 @@
+# Blueprint do Render — backend FastAPI da Frota F8.
+# Deploy: Render Dashboard → New → Blueprint → aponta para este repositório.
+# O Postgres NÃO é criado aqui: use o Neon (grátis) e cole a connection string
+# na variável DATABASE_URL abaixo (o backend normaliza o formato sozinho).
+services:
+  - type: web
+    name: frota-f8-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    # Aplica as migrações (idempotente) e sobe a API na porta que o Render injeta.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Cole aqui a connection string do Neon (Dashboard → não fica no Git).
+      - key: DATABASE_URL
+        sync: false
+      # Segredo do JWT gerado automaticamente pelo Render (forte e único).
+      - key: SECRET_KEY
+        generateValue: true
+      # URL pública do frontend na Vercel, ex.: https://frota-f8.vercel.app
+      # (defina depois de criar o projeto na Vercel; separe múltiplas por vírgula).
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+      - key: ALGORITHM
+        value: HS256
+      # Usados só se você optar por semear um admin do zero (scripts.seed_admin),
+      # em vez de restaurar o dump do banco local. Preencha no Dashboard.
+      - key: FIRST_ADMIN_EMAIL
+        sync: false
+      - key: FIRST_ADMIN_PASSWORD
+        sync: false
+      - key: FIRST_ADMIN_NAME
+        value: Administrador F8
+      - key: PYTHON_VERSION
+        value: "3.12.7"
