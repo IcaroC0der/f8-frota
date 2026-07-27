@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends { id: string }">
 import { computed, ref, watch } from "vue";
-import { Pencil, Trash2, Search, ChevronLeft, ChevronRight } from "lucide-vue-next";
+import { Pencil, Trash2, Search } from "lucide-vue-next";
 import Button from "./Button.vue";
 import Modal from "./Modal.vue";
 

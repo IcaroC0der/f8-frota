@@ -241,7 +241,7 @@ async function confirmDelete() {
         </div>
       </ChartCard>
       <ChartCard title="Custo e Litros por Período" caption="Evolução mensal" :delay="0.3">
-        <Bar :data="monthly" :options="monthlyOptions" />
+        <Bar :data="(monthly as any)" :options="monthlyOptions" />
       </ChartCard>
     </div>
 

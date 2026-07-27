@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { RouterLink } from "vue-router";
 import { Layers, Truck, Fuel, Wrench, DollarSign, ArrowRight } from "lucide-vue-next";
 import PageHeader from "@/components/ui/PageHeader.vue";
 

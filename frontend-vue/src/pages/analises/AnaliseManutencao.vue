@@ -197,7 +197,7 @@ const insights = computed(() => {
         </div>
       </ChartCard>
       <ChartCard title="Manutenções Mensais" caption="Custo e quantidade">
-        <Bar :data="monthly" :options="monthlyOptions" />
+        <Bar :data="(monthly as any)" :options="monthlyOptions" />
       </ChartCard>
       <ChartCard title="Custo de Pneus por Veículo" :caption="`Total: ${formatBRL(tireTotal)}`" class="xl:col-span-2">
         <Bar :data="byTire" :options="vBarOptions" />

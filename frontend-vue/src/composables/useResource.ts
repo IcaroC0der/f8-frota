@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { ref, type Ref } from "vue";
 import { toast } from "vue-sonner";
 
 /** Extrai a mensagem `detail` de um erro do FastAPI. */
@@ -30,7 +30,7 @@ export function useResource<T extends { id: string }>(
   resource: Resource<T>,
   labels: Labels = {},
 ) {
-  const items = ref<T[]>([]) as { value: T[] };
+  const items = ref<T[]>([]) as Ref<T[]>;
   const loading = ref(false);
   const saving = ref(false);
 

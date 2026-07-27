@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { FileText, FileSpreadsheet, FileDown, Filter, Printer } from "lucide-vue-next";
+import { FileText, FileSpreadsheet, FileDown, Printer } from "lucide-vue-next";
 import { fuelRecords, maintenanceRecords, operationalCostRecords, vehicles } from "@/services/api";
 import { formatBRL, formatDate, formatBRLk } from "@/lib/utils";
 import PageHeader from "@/components/ui/PageHeader.vue";
@@ -27,7 +27,6 @@ const fCat = ref("");
 const fSupplier = ref("");
 const fClass = ref("");
 const fPlate = ref("");
-const showFilters = ref(true);
 
 onMounted(async () => {
   try {

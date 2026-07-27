@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { DollarSign, Droplets, TrendingUp, Fuel, Car, Building2 } from "lucide-vue-next";
+import { DollarSign, Droplets, TrendingUp, Fuel, Car } from "lucide-vue-next";
 import { Doughnut, Bar, Line } from "vue-chartjs";
-import { formatBRL, formatBRLk, formatNum, periodRange } from "@/lib/utils";
+import { formatBRLk, formatNum, periodRange } from "@/lib/utils";
 import { palette, seriesColors, baseOptions, brlTick } from "@/lib/charts";
 import StatCard from "@/components/ui/StatCard.vue";
 import ChartCard from "@/components/ui/ChartCard.vue";
@@ -126,7 +126,7 @@ const monthly = computed(() => ({
   labels: monthAgg.value.labels,
   datasets: [
     { type: "bar" as const, label: "Custo (R$)", data: monthAgg.value.keys.map((k) => monthAgg.value.acc[k].cost), backgroundColor: palette.warning, borderRadius: 5, yAxisID: "y", order: 2 },
-    { type: "line" as const, label: "Litros", data: monthAgg.value.keys.map((k) => Math.round(monthAgg.value.acc[k].liters)), borderColor: palette.info, backgroundColor: palette.info, tension: 0.35, pointRadius: 3, yAxisID: "y1", order: 1 },
+    { type: "line" as const, label: "Litros", data: monthAgg.value.keys.map((k) => Math.round(monthAgg.value.acc[k].liters)), borderColor: palette.success, backgroundColor: palette.success, tension: 0.35, pointRadius: 3, yAxisID: "y1", order: 1 },
   ],
 }));
 const monthlyOptions = {
@@ -224,7 +224,7 @@ const avgPriceOptions = {
         <Bar :data="bySupplier" :options="hBarOptions" />
       </ChartCard>
       <ChartCard title="Comparativo Mensal" caption="Custo e litros" class="xl:col-span-2">
-        <Bar :data="monthly" :options="monthlyOptions" />
+        <Bar :data="(monthly as any)" :options="monthlyOptions" />
       </ChartCard>
     </div>
   </div>

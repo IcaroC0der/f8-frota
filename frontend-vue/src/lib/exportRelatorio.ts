@@ -9,6 +9,7 @@ export interface ReportData {
   totals: {
     total: number;
     monthlyAvg: number;
+    monthsCount: number;
     fuel: number;
     maint: number;
     oper: number;
