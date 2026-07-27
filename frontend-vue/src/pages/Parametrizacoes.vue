@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { RouterLink } from "vue-router";
-import { Settings, Tag, Fuel, Wrench, DollarSign, ArrowRight } from "lucide-vue-next";
+import { Layers, Truck, Fuel, Wrench, DollarSign, ArrowRight } from "lucide-vue-next";
 import PageHeader from "@/components/ui/PageHeader.vue";
 
 const groups = [
-  { label: "Categorias de Veículo", desc: "Tipos/categorias da frota", to: "/parametrizacoes/categorias", icon: Tag, tone: "bg-accent/10 text-accent", ready: true },
-  { label: "Tipos de Custo (Combustível)", desc: "Em breve", to: "#", icon: Fuel, tone: "bg-warning/10 text-warning", ready: false },
-  { label: "Classif./Custos de Manutenção", desc: "Em breve", to: "#", icon: Wrench, tone: "bg-destructive/10 text-destructive", ready: false },
-  { label: "Custos Operacionais", desc: "Em breve", to: "#", icon: DollarSign, tone: "bg-success/10 text-success", ready: false },
+  { label: "Veículos", desc: "Categorias de veículos da frota", to: "/parametrizacoes/categorias", icon: Truck, tone: "bg-blue-500/10 text-blue-500", ready: true },
+  { label: "Abastecimentos", desc: "Custos e tipos de combustíveis", to: "/parametrizacoes/abastecimentos", icon: Fuel, tone: "bg-orange-500/10 text-orange-500", ready: true },
+  { label: "Manutenção", desc: "Classificações e tipos de manutenção", to: "/parametrizacoes/manutencao", icon: Wrench, tone: "bg-red-500/10 text-red-500", ready: true },
+  { label: "Custos Operacionais", desc: "Custos administrativos diversos", to: "/parametrizacoes/operacionais", icon: DollarSign, tone: "bg-green-500/10 text-green-500", ready: true },
 ];
 </script>
 
 <template>
   <div class="w-full p-6 md:p-10">
-    <PageHeader title="Parametrizações" subtitle="Configuração das tabelas de apoio" :icon="Settings" />
+    <PageHeader title="Estrutura dos Módulos" subtitle="Configure categorias, custos e regras de funcionamento de cada módulo" :icon="Layers" />
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <component
         :is="g.ready ? 'RouterLink' : 'div'"
@@ -36,3 +36,4 @@ const groups = [
     </div>
   </div>
 </template>
+

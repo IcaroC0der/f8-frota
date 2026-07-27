@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
-import { Wrench, Plus, DollarSign, ShieldCheck, BarChart3 } from "lucide-vue-next";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { Wrench, Plus, DollarSign, ShieldCheck, BarChart3, Car, Paperclip, Pencil, Trash2 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { Doughnut, Bar } from "vue-chartjs";
 import {
@@ -8,10 +8,9 @@ import {
   type MaintenanceRecord, type Vehicle, type MaintenanceClassification, type MaintenanceCostType,
 } from "@/services/api";
 import { useResource } from "@/composables/useResource";
-import { formatBRL, formatDate } from "@/lib/utils";
+import { formatBRL, formatDate, formatNum } from "@/lib/utils";
 import { seriesColors, palette, baseOptions, brlTick } from "@/lib/charts";
 import PageHeader from "@/components/ui/PageHeader.vue";
-import DataTable from "@/components/ui/DataTable.vue";
 import Modal from "@/components/ui/Modal.vue";
 import Button from "@/components/ui/Button.vue";
 import Badge from "@/components/ui/Badge.vue";
@@ -112,12 +111,18 @@ const groupEntries = computed(() => {
   }
   return Object.entries(acc).sort((a, b) => b[1] - a[1]);
 });
+const groupColorMap = computed(() => {
+  const m: Record<string, string> = {};
+  groupEntries.value.forEach(([label], i) => { m[label] = seriesColors[i % seriesColors.length]; });
+  return m;
+});
+const groupColor = (name?: string) => groupColorMap.value[name || "Outros"] ?? "#9ca3af";
 const byGroup = computed(() => ({
   labels: groupEntries.value.map((e) => e[0]),
-  datasets: [{ data: groupEntries.value.map((e) => e[1]), backgroundColor: groupEntries.value.map((_, i) => seriesColors[i % seriesColors.length]), borderWidth: 0 }],
+  datasets: [{ data: groupEntries.value.map((e) => e[1]), backgroundColor: groupEntries.value.map(([l]) => groupColor(l)), borderWidth: 0 }],
 }));
 const groupLegend = computed(() =>
-  groupEntries.value.map(([label, value], i) => ({ label, value, color: seriesColors[i % seriesColors.length] })),
+  groupEntries.value.map(([label, value]) => ({ label, value, color: groupColor(label) })),
 );
 const donutOptions = { ...baseOptions, plugins: { legend: { display: false } } };
 
@@ -174,14 +179,30 @@ function onGroup() {
   form.cost_type = "";
 }
 
-const columns = [
-  { key: "date", label: "Data" },
-  { key: "plate", label: "Placa" },
-  { key: "classification", label: "Classificação" },
-  { key: "cost_group", label: "Grupo" },
-  { key: "cost_type", label: "Tipo" },
-  { key: "total_value", label: "Valor" },
-];
+/* ---------- paginação ---------- */
+const page = ref(1);
+const pageSize = 10;
+const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)));
+const paged = computed(() => filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize));
+watch(filtered, () => { page.value = 1; });
+const pageNumbers = computed(() => {
+  const t = totalPages.value, c = page.value;
+  const out: (number | "...")[] = [];
+  for (let p = 1; p <= t; p++) {
+    if (p === 1 || p === t || Math.abs(p - c) <= 1) {
+      if (out.length && (out[out.length - 1] as number) < p - 1) out.push("...");
+      out.push(p);
+    }
+  }
+  return out;
+});
+
+/* ---------- exclusão ---------- */
+const deleteId = ref<string | null>(null);
+async function confirmDelete() {
+  if (deleteId.value) await remove(deleteId.value);
+  deleteId.value = null;
+}
 
 function openAdd() {
   editing.value = null;
@@ -272,14 +293,122 @@ async function submit() {
     </FilterBar>
 
     <div v-if="loading" class="flex justify-center py-20"><Spinner /></div>
-    <DataTable v-else :columns="columns" :data="filtered" search-placeholder="Buscar por placa, tipo, fornecedor..." @edit="openEdit" @delete="remove">
-      <template #cell-date="{ value }">{{ formatDate(value) }}</template>
-      <template #cell-plate="{ value }"><span class="rounded bg-muted px-2 py-0.5 text-sm font-bold tracking-widest">{{ value }}</span></template>
-      <template #cell-classification="{ value }">
-        <Badge :tone="value === 'PREVENTIVO' ? 'bg-success/10 text-success border-success/20' : 'bg-destructive/10 text-destructive border-destructive/20'">{{ value }}</Badge>
-      </template>
-      <template #cell-total_value="{ value }"><span class="font-semibold">{{ formatBRL(value) }}</span></template>
-    </DataTable>
+    <div v-else class="a-in overflow-hidden rounded-xl border bg-card shadow-card" style="animation-delay: 0.38s">
+      <div class="flex items-center justify-between border-b p-4">
+        <div class="flex items-center gap-2">
+          <Wrench class="h-4 w-4 text-destructive" />
+          <span class="text-sm font-bold uppercase tracking-wider">Lançamentos de Manutenção</span>
+          <Badge>{{ filtered.length }}</Badge>
+        </div>
+        <span class="text-sm font-semibold">{{ formatBRL(total) }}</span>
+      </div>
+
+      <div class="scrollbar-brand overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-muted/50">
+            <tr>
+              <th class="th">Data</th>
+              <th class="th">Veículo</th>
+              <th class="th">Categoria</th>
+              <th class="th">Classificação</th>
+              <th class="th">Custo</th>
+              <th class="th">Tipo</th>
+              <th class="th">Fornecedor</th>
+              <th class="th th-r">Valor (R$)</th>
+              <th class="th th-r">KM</th>
+              <th class="th th-r">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="paged.length === 0">
+              <td colspan="10" class="py-12 text-center text-muted-foreground">Nenhum registro encontrado</td>
+            </tr>
+            <tr v-for="r in paged" :key="r.id" class="border-b transition-colors duration-200 hover:bg-primary/[0.06]">
+              <!-- Data -->
+              <td class="whitespace-nowrap px-4 py-2.5 font-medium">{{ formatDate(r.date) }}</td>
+              <!-- Veículo -->
+              <td class="whitespace-nowrap px-4 py-2.5">
+                <div class="flex items-center gap-2">
+                  <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <Car class="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div class="leading-tight">
+                    <p class="text-sm font-bold tracking-widest">{{ r.plate }}</p>
+                    <p v-if="r.vehicle_model || vehByPlate[r.plate]?.vehicle_model" class="text-xs text-muted-foreground">
+                      {{ r.vehicle_model || vehByPlate[r.plate]?.vehicle_model }}
+                    </p>
+                  </div>
+                </div>
+              </td>
+              <!-- Categoria -->
+              <td class="px-4 py-2.5"><Badge>{{ catOf(r) || "—" }}</Badge></td>
+              <!-- Classificação -->
+              <td class="px-4 py-2.5">
+                <span
+                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                  :class="isPrev(r.classification) ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'"
+                >
+                  <span class="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+                  {{ r.classification || "—" }}
+                </span>
+              </td>
+              <!-- Custo (grupo) -->
+              <td class="px-4 py-2.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
+                  <span class="h-1.5 w-1.5 rounded-full" :style="{ background: groupColor(r.cost_group) }" />
+                  {{ r.cost_group || "—" }}
+                </span>
+              </td>
+              <!-- Tipo -->
+              <td class="px-4 py-2.5 text-xs font-medium">{{ r.cost_type || "—" }}</td>
+              <!-- Fornecedor -->
+              <td class="px-4 py-2.5">
+                <div class="max-w-[160px] leading-tight">
+                  <p class="truncate text-xs font-medium" :title="r.supplier ?? ''">{{ r.supplier || "—" }}</p>
+                  <p v-if="r.invoice_number" class="text-xs text-muted-foreground">NF: {{ r.invoice_number }}</p>
+                </div>
+              </td>
+              <!-- Valor -->
+              <td class="px-4 py-2.5 text-right font-semibold text-destructive tabular-nums">{{ formatBRL(r.total_value) }}</td>
+              <!-- KM -->
+              <td class="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{{ r.km ? formatNum(Number(r.km)) : "—" }}</td>
+              <!-- Ações -->
+              <td class="px-4 py-2.5">
+                <div class="flex items-center justify-end gap-1">
+                  <a
+                    v-if="r.attachment_url" :href="r.attachment_url" target="_blank" rel="noopener noreferrer"
+                    class="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Paperclip class="h-3.5 w-3.5" />
+                  </a>
+                  <button class="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" @click="openEdit(r)">
+                    <Pencil class="h-3.5 w-3.5" />
+                  </button>
+                  <button class="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" @click="deleteId = r.id">
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Rodapé + paginação -->
+      <div class="flex flex-col items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2.5 sm:flex-row">
+        <span class="text-xs text-muted-foreground">{{ filtered.length }} de {{ items.length }} registro(s)</span>
+        <div v-if="totalPages > 1" class="flex items-center gap-1">
+          <button class="pg" :disabled="page === 1" @click="page = 1">«</button>
+          <button class="pg" :disabled="page === 1" @click="page--">‹</button>
+          <template v-for="(p, i) in pageNumbers" :key="i">
+            <span v-if="p === '...'" class="px-1.5 text-xs text-muted-foreground">…</span>
+            <button v-else class="pg" :class="p === page && 'border-primary bg-primary text-primary-foreground'" @click="page = (p as number)">{{ p }}</button>
+          </template>
+          <button class="pg" :disabled="page === totalPages" @click="page++">›</button>
+          <button class="pg" :disabled="page === totalPages" @click="page = totalPages">»</button>
+        </div>
+      </div>
+    </div>
 
     <Modal :open="dialogOpen" :title="editing ? 'Editar Manutenção' : 'Nova Manutenção'" :saving="saving" @close="dialogOpen = false" @submit="submit">
       <div class="grid grid-cols-2 gap-3">
@@ -317,5 +446,22 @@ async function submit() {
         <FormField label="Observação" class="col-span-2"><input v-model="form.observation" class="ui-input" /></FormField>
       </div>
     </Modal>
+
+    <!-- Confirmar exclusão -->
+    <Modal :open="!!deleteId" title="Confirmar exclusão" submit-label="Excluir" @close="deleteId = null" @submit="confirmDelete">
+      <p class="text-sm text-muted-foreground">Tem certeza que deseja excluir este lançamento? Esta ação não poderá ser desfeita.</p>
+    </Modal>
   </div>
 </template>
+
+<style scoped>
+.th {
+  @apply px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground;
+}
+.th-r {
+  @apply text-right;
+}
+.pg {
+  @apply flex h-7 min-w-[1.75rem] items-center justify-center rounded-md border bg-card px-1.5 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40;
+}
+</style>

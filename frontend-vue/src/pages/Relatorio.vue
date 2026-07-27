@@ -1,41 +1,49 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { FileText, FileSpreadsheet, FileDown } from "lucide-vue-next";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
-import { fuelRecords, maintenanceRecords, operationalCostRecords } from "@/services/api";
-import { formatBRL, formatDate } from "@/lib/utils";
+import { FileText, FileSpreadsheet, FileDown, Filter, Printer } from "lucide-vue-next";
+import { fuelRecords, maintenanceRecords, operationalCostRecords, vehicles } from "@/services/api";
+import { formatBRL, formatDate, formatBRLk } from "@/lib/utils";
 import PageHeader from "@/components/ui/PageHeader.vue";
 import FilterBar from "@/components/ui/FilterBar.vue";
 import Button from "@/components/ui/Button.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Spinner from "@/components/ui/Spinner.vue";
+import StatCard from "@/components/ui/StatCard.vue";
+import { exportRelatorioPDF, exportRelatorioExcel, exportAnalisePDF } from "@/lib/exportRelatorio";
 
 interface Row {
-  date: string; module: string; plate: string;
+  date: string; module: string; plate: string; _cat: string;
   description: string; supplier: string; total_value: number;
 }
 
 const loading = ref(true);
 const rows = ref<Row[]>([]);
+const vehiclesList = ref<any[]>([]);
 
-const fModule = ref("all");
 const fFrom = ref("");
 const fTo = ref("");
+const fModule = ref("all");
+const fCat = ref("");
+const fSupplier = ref("");
+const fClass = ref("");
 const fPlate = ref("");
+const showFilters = ref(true);
 
 onMounted(async () => {
   try {
-    const [fuel, maint, oper] = await Promise.all([
+    const [fuel, maint, oper, vehs] = await Promise.all([
       fuelRecords.list({ limit: 5000 }),
       maintenanceRecords.list({ limit: 5000 }),
       operationalCostRecords.list({ limit: 5000 }),
+      vehicles.list(),
     ]);
+    vehiclesList.value = vehs;
+    const catOf = (p: string) => vehs.find((v: any) => v.plate === p)?.category_name || "Sem Categoria";
+
     rows.value = [
-      ...fuel.map((r: any) => ({ date: r.date, module: "Combustível", plate: r.plate ?? "", description: r.cost_type, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
-      ...maint.map((r: any) => ({ date: r.date, module: "Manutenção", plate: r.plate ?? "", description: `${r.classification} / ${r.cost_type}`, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
-      ...oper.map((r: any) => ({ date: r.date, module: "Operacional", plate: r.plate ?? "", description: r.cost_name, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
+      ...fuel.map((r: any) => ({ date: r.date, module: "Abastecimento", plate: r.plate ?? "", _cat: catOf(r.plate), description: r.cost_type, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
+      ...maint.map((r: any) => ({ date: r.date, module: "Manutenção", plate: r.plate ?? "", _cat: catOf(r.plate), description: `${r.classification} / ${r.cost_type}`, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
+      ...oper.map((r: any) => ({ date: r.date, module: "Operacional", plate: r.plate ?? "", _cat: catOf(r.plate), description: r.cost_name, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
     ].sort((a, b) => (a.date < b.date ? 1 : -1));
   } finally {
     loading.value = false;
@@ -47,94 +55,155 @@ const filtered = computed(() =>
     if (fModule.value !== "all" && r.module !== fModule.value) return false;
     if (fFrom.value && r.date < fFrom.value) return false;
     if (fTo.value && r.date > fTo.value) return false;
-    if (fPlate.value && !r.plate.toLowerCase().includes(fPlate.value.toLowerCase())) return false;
+    if (fPlate.value && r.plate !== fPlate.value) return false;
+    if (fCat.value && r._cat !== fCat.value) return false;
+    if (fSupplier.value && r.supplier !== fSupplier.value) return false;
+    if (fClass.value && r.description !== fClass.value) return false;
     return true;
   }),
 );
-const total = computed(() => filtered.value.reduce((s, r) => s + r.total_value, 0));
-const hasFilters = computed(() => fModule.value !== "all" || !!fFrom.value || !!fTo.value || !!fPlate.value);
+
+const uniq = (arr: any[]) => [...new Set(arr.filter(Boolean))].sort() as string[];
+const platesOptions = computed(() => uniq(rows.value.map(r => r.plate)));
+const catsOptions = computed(() => uniq(vehiclesList.value.map(v => v.category_name)));
+const supplierOptions = computed(() => uniq(rows.value.map(r => r.supplier)));
+const classOptions = computed(() => uniq(rows.value.map(r => r.description)));
+
+const totals = computed(() => {
+  const f = filtered.value;
+  let total = 0, fuel = 0, maint = 0, oper = 0;
+  const months = new Set();
+  for (const r of f) {
+    total += r.total_value;
+    if (r.module === "Abastecimento") fuel += r.total_value;
+    else if (r.module === "Manutenção") maint += r.total_value;
+    else if (r.module === "Operacional") oper += r.total_value;
+    if (r.date) months.add(r.date.slice(0, 7));
+  }
+  return {
+    total, fuel, maint, oper,
+    count: f.length,
+    monthlyAvg: months.size > 0 ? total / months.size : 0,
+    monthsCount: months.size
+  };
+});
+
+function getExportData() {
+  const monthlyAcc: any = {};
+  const plateAcc: any = {};
+  
+  for (const r of filtered.value) {
+    if (r.date) {
+      const m = r.date.slice(0, 7);
+      if (!monthlyAcc[m]) monthlyAcc[m] = { mes: m, abastecimento: 0, manutencao: 0, operacional: 0, total: 0 };
+      monthlyAcc[m].total += r.total_value;
+      if (r.module === "Abastecimento") monthlyAcc[m].abastecimento += r.total_value;
+      if (r.module === "Manutenção") monthlyAcc[m].manutencao += r.total_value;
+      if (r.module === "Operacional") monthlyAcc[m].operacional += r.total_value;
+    }
+    if (r.plate) {
+      const p = r.plate;
+      if (!plateAcc[p]) plateAcc[p] = { placa: p, lanctos: 0, abastecimento: 0, manutencao: 0, operacional: 0, total: 0 };
+      plateAcc[p].lanctos++;
+      plateAcc[p].total += r.total_value;
+      if (r.module === "Abastecimento") plateAcc[p].abastecimento += r.total_value;
+      if (r.module === "Manutenção") plateAcc[p].manutencao += r.total_value;
+      if (r.module === "Operacional") plateAcc[p].operacional += r.total_value;
+    }
+  }
+
+  const filtersText = Object.entries({
+    "De": fFrom.value ? formatDate(fFrom.value) : "", 
+    "Até": fTo.value ? formatDate(fTo.value) : "", 
+    "Módulo": fModule.value !== "all" ? fModule.value : "",
+    "Categoria": fCat.value, "Fornecedor": fSupplier.value,
+    "Classificação": fClass.value, "Placa": fPlate.value
+  }).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join(" | ") || "Nenhum filtro aplicado — exibindo todos os registros";
+
+  return {
+    rows: filtered.value,
+    filtersText,
+    totals: totals.value,
+    monthly: Object.values(monthlyAcc).sort((a: any, b: any) => a.mes.localeCompare(b.mes)),
+    byPlate: Object.values(plateAcc).sort((a: any, b: any) => b.total - a.total),
+  };
+}
+
+function handleExportPDF() {
+  exportRelatorioPDF(getExportData());
+}
+function handleExportAnalisePDF() {
+  exportAnalisePDF(getExportData());
+}
+function handleExportExcel() {
+  exportRelatorioExcel(getExportData());
+}
+function handlePrint() {
+  window.print();
+}
+
 function clearFilters() {
   fModule.value = "all";
-  fFrom.value = "";
-  fTo.value = "";
-  fPlate.value = "";
+  fFrom.value = ""; fTo.value = "";
+  fCat.value = ""; fSupplier.value = ""; fClass.value = ""; fPlate.value = "";
 }
 
 const moduleTone: Record<string, string> = {
-  "Combustível": "bg-warning/10 text-warning border-warning/20",
+  "Abastecimento": "bg-warning/10 text-warning border-warning/20",
   "Manutenção": "bg-destructive/10 text-destructive border-destructive/20",
   "Operacional": "bg-success/10 text-success border-success/20",
 };
-
-function exportExcel() {
-  const data = filtered.value.map((r) => ({
-    Data: formatDate(r.date), Módulo: r.module, Placa: r.plate,
-    Descrição: r.description, Fornecedor: r.supplier, "Valor (R$)": r.total_value,
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Relatório");
-  XLSX.writeFile(wb, "relatorio-frota.xlsx");
-}
-
-function exportPDF() {
-  const doc = new jsPDF();
-  doc.setFontSize(14);
-  doc.text("Relatório de Custos — Frota F8", 14, 16);
-  doc.setFontSize(10);
-  doc.text(`Total: ${formatBRL(total.value)}  ·  ${filtered.value.length} lançamento(s)`, 14, 23);
-  autoTable(doc, {
-    startY: 28,
-    head: [["Data", "Módulo", "Placa", "Descrição", "Fornecedor", "Valor"]],
-    body: filtered.value.map((r) => [
-      formatDate(r.date), r.module, r.plate, r.description, r.supplier, formatBRL(r.total_value),
-    ]),
-    styles: { fontSize: 8 },
-    // Identidade F8: cabeçalho amarelo com texto preto
-    headStyles: { fillColor: [251, 191, 36], textColor: [0, 0, 0], fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [249, 249, 249] },
-  });
-  doc.save("relatorio-frota.pdf");
-}
 </script>
 
 <template>
-  <div class="w-full p-6 md:p-10">
-    <PageHeader title="Relatório" subtitle="Consolidação e exportação de custos" :icon="FileText">
+  <div class="w-full p-6 md:p-10 print:p-0">
+    <PageHeader title="Relatório Geral de Custos" subtitle="VISÃO CONSOLIDADA · TODOS OS MÓDULOS" :icon="FileText">
       <template #actions>
-        <div class="flex gap-2">
-          <Button variant="outline" @click="exportExcel"><FileSpreadsheet class="h-4 w-4" /> Excel</Button>
-          <Button @click="exportPDF"><FileDown class="h-4 w-4" /> PDF</Button>
+        <div class="flex gap-2 print:hidden">
+          <Button variant="outline" @click="handlePrint"><Printer class="h-4 w-4" /> Imprimir</Button>
+          <Button variant="outline" @click="handleExportExcel"><FileSpreadsheet class="h-4 w-4" /> Exportar Planilha</Button>
+          <Button variant="outline" @click="handleExportPDF"><FileDown class="h-4 w-4" /> Relatório Completo</Button>
+          <Button @click="handleExportAnalisePDF"><FileDown class="h-4 w-4" /> Análise Executiva</Button>
         </div>
       </template>
     </PageHeader>
 
-    <FilterBar :has-active="hasFilters" :delay="0.08" @clear="clearFilters">
-      <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground">Módulo</span>
-        <select v-model="fModule" class="ui-input">
-          <option value="all">Todos</option><option>Combustível</option><option>Manutenção</option><option>Operacional</option>
-        </select>
-      </label>
-      <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground">De</span>
-        <input v-model="fFrom" type="date" class="ui-input" />
-      </label>
-      <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground">Até</span>
-        <input v-model="fTo" type="date" class="ui-input" />
-      </label>
-      <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground">Placa</span>
-        <input v-model="fPlate" class="ui-input" placeholder="Filtrar placa..." />
-      </label>
-    </FilterBar>
+    <div class="mb-5 print:hidden">
+      <FilterBar :has-active="false" :delay="0" @clear="clearFilters">
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Período — De</span><input v-model="fFrom" type="date" class="ui-input" /></label>
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Período — Até</span><input v-model="fTo" type="date" class="ui-input" /></label>
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Tipo de Custo</span>
+          <select v-model="fModule" class="ui-input"><option value="all">Todos</option><option>Abastecimento</option><option>Manutenção</option><option>Operacional</option></select>
+        </label>
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Categoria</span>
+          <select v-model="fCat" class="ui-input"><option value="">Todas</option><option v-for="c in catsOptions" :key="c" :value="c">{{ c }}</option></select>
+        </label>
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Fornecedor</span>
+          <select v-model="fSupplier" class="ui-input"><option value="">Todos</option><option v-for="s in supplierOptions" :key="s" :value="s">{{ s }}</option></select>
+        </label>
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Custo / Classificação</span>
+          <select v-model="fClass" class="ui-input"><option value="">Todos</option><option v-for="c in classOptions" :key="c" :value="c">{{ c }}</option></select>
+        </label>
+        <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground uppercase">Placa(s)</span>
+          <select v-model="fPlate" class="ui-input"><option value="">Todas as placas</option><option v-for="p in platesOptions" :key="p" :value="p">{{ p }}</option></select>
+        </label>
+      </FilterBar>
+
+      <div class="mt-4 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <StatCard label="CUSTO TOTAL" :value="formatBRLk(totals.total)" :sub="`100.0% do total geral`" tone="bg-primary/10 text-primary-hover" highlight />
+        <StatCard label="MÉDIA MENSAL" :value="formatBRLk(totals.monthlyAvg)" :sub="`${totals.monthsCount} meses`" tone="bg-info/10 text-info" />
+        <StatCard label="TOTAL REGISTROS" :value="String(totals.count)" sub="lançamentos" tone="bg-accent/10 text-accent" />
+        <StatCard label="ABASTECIMENTO" :value="formatBRLk(totals.fuel)" :sub="`${totals.total ? ((totals.fuel/totals.total)*100).toFixed(1) : 0}% do total`" tone="bg-warning/10 text-warning" />
+        <StatCard label="MANUTENÇÃO" :value="formatBRLk(totals.maint)" :sub="`${totals.total ? ((totals.maint/totals.total)*100).toFixed(1) : 0}% do total`" tone="bg-destructive/10 text-destructive" />
+        <StatCard label="OPERACIONAL" :value="formatBRLk(totals.oper)" :sub="`${totals.total ? ((totals.oper/totals.total)*100).toFixed(1) : 0}% do total`" tone="bg-success/10 text-success" />
+      </div>
+    </div>
 
     <div v-if="loading" class="flex justify-center py-20"><Spinner /></div>
-    <div v-else class="a-in overflow-hidden rounded-xl border bg-card shadow-card" style="animation-delay: 0.15s">
-      <div class="flex items-center justify-between border-b p-4">
-        <span class="text-sm text-muted-foreground">{{ filtered.length }} lançamento(s)</span>
-        <span class="text-lg font-bold">{{ formatBRL(total) }}</span>
-      </div>
-      <div class="max-h-[60vh] overflow-auto">
+    <div v-else class="a-in overflow-hidden rounded-xl border bg-card shadow-card print:shadow-none print:border-0" style="animation-delay: 0.15s">
+      <div class="max-h-[60vh] overflow-auto print:max-h-none print:overflow-visible">
         <table class="w-full text-sm">
-          <thead class="sticky top-0 bg-muted/80 backdrop-blur">
+          <thead class="sticky top-0 bg-muted/80 backdrop-blur print:bg-transparent">
             <tr>
               <th class="px-4 py-2 text-left text-xs font-semibold uppercase text-muted-foreground">Data</th>
               <th class="px-4 py-2 text-left text-xs font-semibold uppercase text-muted-foreground">Módulo</th>
@@ -145,7 +214,7 @@ function exportPDF() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, i) in filtered" :key="i" class="border-b hover:bg-muted/30">
+            <tr v-for="(r, i) in filtered" :key="i" class="border-b hover:bg-muted/30 print:border-b-gray-200">
               <td class="whitespace-nowrap px-4 py-2">{{ formatDate(r.date) }}</td>
               <td class="px-4 py-2"><Badge :tone="moduleTone[r.module]">{{ r.module }}</Badge></td>
               <td class="px-4 py-2 font-medium">{{ r.plate || "—" }}</td>
