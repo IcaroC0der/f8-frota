@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { DollarSign, TrendingUp, BarChart3, Fuel, Wrench, Coins, Truck, ArrowLeft, X, ChevronRight } from "lucide-vue-next";
+import { DollarSign, TrendingUp, BarChart3, Fuel, Wrench, Coins, Truck, ArrowLeft, X, ChevronRight, Layers } from "lucide-vue-next";
 import { Doughnut, Bar, Line } from "vue-chartjs";
 import { formatBRL, formatBRLk } from "@/lib/utils";
 import { palette, moduleColors, seriesColors, baseOptions, brlTick } from "@/lib/charts";
@@ -58,6 +58,11 @@ const kpis = computed(() => {
   ];
 });
 
+/* ---- Seletor Top N reutilizável (ranking generalizado) ---- */
+const topNOptions = [5, 10, "Todos"] as const;
+type TopN = (typeof topNOptions)[number];
+const applyTopN = <T,>(list: T[], n: TopN) => (n === "Todos" ? list : list.slice(0, n));
+
 /* ---- Evolução de Custos (mensal/anual) ---- */
 const evoPeriod = ref<"mensal" | "anual">("mensal");
 const evolution = computed(() => {
@@ -92,22 +97,52 @@ const compositionLegend = computed(() => [
 ]);
 const compositionOptions = { ...baseOptions, cutout: "68%", plugins: { legend: { display: false } } };
 
-/* ---- Manutenção por grupo ---- */
-const maintByGroup = computed(() => {
+/* ---- Manutenção por grupo (Top N + clique → modal por tipo de custo) ---- */
+const groupTopN = ref<TopN>("Todos");
+const maintGroupEntries = computed(() => {
   const acc: Record<string, number> = {};
   for (const r of modRows("Manutenção")) acc[r.cost_group || "Outros"] = (acc[r.cost_group || "Outros"] || 0) + val(r);
-  const e = Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  return { labels: e.map((x) => x[0]), datasets: [{ data: e.map((x) => x[1]), backgroundColor: e.map((_, i) => seriesColors[i % seriesColors.length]), borderRadius: 6, maxBarThickness: 48 }] };
+  return Object.entries(acc).sort((a, b) => b[1] - a[1]);
 });
-const vBarOptions = { ...baseOptions, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { ticks: { callback: brlTick } } } };
+const maintByGroup = computed(() => {
+  const e = applyTopN(maintGroupEntries.value, groupTopN.value);
+  return {
+    labels: e.map((x) => x[0]),
+    datasets: [{
+      data: e.map((x) => x[1]),
+      backgroundColor: e.map((_, i) => seriesColors[i % seriesColors.length]),
+      borderRadius: 6, maxBarThickness: 96, barPercentage: 0.92, categoryPercentage: 0.86,
+    }],
+  };
+});
+const selectedGroup = ref<string | null>(null);
+const groupBreakdown = computed(() => {
+  if (!selectedGroup.value) return { rows: [] as any[], total: 0, qty: 0 };
+  const mine = modRows("Manutenção").filter((r) => (r.cost_group || "Outros") === selectedGroup.value);
+  const acc: Record<string, { qty: number; total: number }> = {};
+  for (const r of mine) { const k = r.cost_type || "Outros"; const b = (acc[k] ??= { qty: 0, total: 0 }); b.qty++; b.total += val(r); }
+  const total = mine.reduce((s, r) => s + val(r), 0);
+  const rows = Object.entries(acc)
+    .map(([label, v], i) => ({ label, ...v, color: seriesColors[i % seriesColors.length], pct: total > 0 ? (v.total / total) * 100 : 0 }))
+    .sort((a, b) => b.total - a.total);
+  return { rows, total, qty: mine.length };
+});
+const maintGroupOptions = {
+  ...baseOptions,
+  plugins: { legend: { display: false } },
+  scales: { x: { grid: { display: false } }, y: { ticks: { callback: brlTick } } },
+  onClick: (_e: any, els: any[]) => { if (els.length) selectedGroup.value = (maintByGroup.value.labels[els[0].index] as string) ?? null; },
+  onHover: (e: any, els: any[]) => { const t = e?.native?.target; if (t) t.style.cursor = els.length ? "pointer" : "default"; },
+};
 
-/* ---- Custos por veículo (lista + modal drill-down) ---- */
+/* ---- Custos por veículo (Top N + lista + modal drill-down) ---- */
+const vehTopN = ref<TopN>(10);
 const topVehicles = computed(() => {
   const acc: Record<string, number> = {};
   for (const r of filtered.value) { if (!r.plate || r.plate === "00000") continue; acc[r.plate] = (acc[r.plate] || 0) + val(r); }
   const list = Object.entries(acc).map(([plate, total]) => ({ plate, total, model: modelOf(plate) })).sort((a, b) => b.total - a.total);
   const max = list[0]?.total || 1;
-  return list.slice(0, 8).map((v, i) => ({ ...v, rank: i + 1, pct: (v.total / max) * 100 }));
+  return applyTopN(list, vehTopN.value).map((v, i) => ({ ...v, rank: i + 1, pct: (v.total / max) * 100 }));
 });
 
 const selectedVehicle = ref<string | null>(null);
@@ -136,7 +171,7 @@ const vehBreakdown = computed(() =>
     .filter((m) => m.total > 0),
 );
 
-/* ---- Custos por categoria (donut + tabela) ---- */
+/* ---- Custos por categoria (donut + tabela + modal drill-down por placa) ---- */
 const catEntries = computed(() => {
   const acc: Record<string, { qty: number; cost: number }> = {};
   for (const r of filtered.value) { const b = (acc[r._cat] ??= { qty: 0, cost: 0 }); b.qty++; b.cost += val(r); }
@@ -146,8 +181,43 @@ const catDonut = computed(() => ({
   labels: catEntries.value.map((e) => e.name),
   datasets: [{ data: catEntries.value.map((e) => e.cost), backgroundColor: catEntries.value.map((_, i) => seriesColors[i % seriesColors.length]), borderWidth: 0 }],
 }));
-const donutOptions = { ...baseOptions, cutout: "62%", plugins: { legend: { display: false } } };
 const pctOf = (v: number) => (totalCost.value > 0 ? ((v / totalCost.value) * 100).toFixed(1) : "0.0");
+
+const selectedCatDetail = ref<string | null>(null);
+const catDetail = computed(() => {
+  if (!selectedCatDetail.value) return { plates: [] as any[], total: 0 };
+  const mine = filtered.value.filter((r) => r._cat === selectedCatDetail.value);
+  const map: Record<string, any> = {};
+  for (const r of mine) {
+    const key = r.plate || "— (sem placa)";
+    const p = (map[key] ??= { plate: key, model: modelOf(r.plate), Abastecimento: 0, Manutenção: 0, Operacional: 0, total: 0 });
+    p[r._mod] += val(r); p.total += val(r);
+  }
+  const plates = Object.values(map).sort((a: any, b: any) => b.total - a.total);
+  return { plates, total: mine.reduce((s, r) => s + val(r), 0) };
+});
+const catDetailChart = computed(() => {
+  const plates = catDetail.value.plates.slice(0, 12);
+  const seg = (mod: string, color: string) => ({ label: mod, data: plates.map((p: any) => p[mod]), backgroundColor: color, borderRadius: 4, stack: "s", maxBarThickness: 34 });
+  return {
+    labels: plates.map((p: any) => p.plate),
+    datasets: [
+      seg("Abastecimento", moduleColors[0]),
+      seg("Manutenção", moduleColors[1]),
+      seg("Operacional", moduleColors[2]),
+    ],
+  };
+});
+const catDetailOptions = {
+  ...baseOptions, indexAxis: "y" as const,
+  plugins: { legend: { position: "bottom" as const, labels: { usePointStyle: true, boxWidth: 8, padding: 16 } } },
+  scales: { x: { stacked: true, ticks: { callback: brlTick }, grid: { display: false } }, y: { stacked: true, grid: { display: false } } },
+};
+const catDonutOptions = {
+  ...baseOptions, cutout: "62%", plugins: { legend: { display: false } },
+  onClick: (_e: any, els: any[]) => { if (els.length) selectedCatDetail.value = (catDonut.value.labels[els[0].index] as string) ?? null; },
+  onHover: (e: any, els: any[]) => { const t = e?.native?.target; if (t) t.style.cursor = els.length ? "pointer" : "default"; },
+};
 
 /* ---- Custos operacionais (barra horizontal) ---- */
 const opByName = computed(() => {
@@ -219,8 +289,17 @@ const compOptions = { ...baseOptions, plugins: { legend: { position: "bottom" as
     <!-- Custos por Veículos + Manutenção por Grupo -->
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div class="a-in rounded-xl border bg-card p-5 shadow-card">
-        <h3 class="card-title">Custos por Veículo</h3>
-        <p class="card-caption mb-4">Passe o mouse e clique numa placa para ver o detalhamento</p>
+        <div class="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 class="card-title">Custos por Veículo</h3>
+            <p class="card-caption">Clique numa placa para ver o detalhamento</p>
+          </div>
+          <div class="flex shrink-0 gap-1 rounded-lg bg-muted p-1">
+            <button v-for="opt in topNOptions" :key="opt" class="rounded-md px-2.5 py-1 text-xs font-semibold transition-all duration-200"
+              :class="vehTopN === opt ? 'bg-primary text-primary-foreground shadow-card' : 'text-muted-foreground hover:text-foreground'"
+              @click="vehTopN = opt">{{ opt === 'Todos' ? 'Todos' : `Top ${opt}` }}</button>
+          </div>
+        </div>
         <div class="space-y-1">
           <button
             v-for="v in topVehicles" :key="v.plate"
@@ -244,16 +323,23 @@ const compOptions = { ...baseOptions, plugins: { legend: { position: "bottom" as
           <p v-if="!topVehicles.length" class="py-10 text-center text-sm text-muted-foreground">Nenhum dado disponível</p>
         </div>
       </div>
-      <ChartCard title="Manutenção por Grupo" caption="Top 6 grupos de custo">
-        <Bar :data="maintByGroup" :options="vBarOptions" />
+      <ChartCard title="Manutenção por Grupo" caption="Clique numa coluna para ver os tipos de custo" :maximizable="false">
+        <template #actions>
+          <div class="flex gap-1 rounded-lg bg-muted p-1">
+            <button v-for="opt in topNOptions" :key="opt" class="rounded-md px-2.5 py-1 text-xs font-semibold transition-all duration-200"
+              :class="groupTopN === opt ? 'bg-primary text-primary-foreground shadow-card' : 'text-muted-foreground hover:text-foreground'"
+              @click="groupTopN = opt">{{ opt === 'Todos' ? 'Todos' : `Top ${opt}` }}</button>
+          </div>
+        </template>
+        <Bar :data="maintByGroup" :options="maintGroupOptions" />
       </ChartCard>
     </div>
 
-    <!-- Custos por categoria -->
-    <ChartCard title="Custos Totais por Categoria" caption="Abastecimento + Manutenção + Operacional" :height="300">
+    <!-- Custos por categoria (clicável) -->
+    <ChartCard title="Custos Totais por Categoria" caption="Clique numa categoria para detalhar por veículo" :height="300">
       <div class="flex h-full flex-col items-center gap-6 md:flex-row md:items-stretch">
         <div class="relative h-52 w-52 shrink-0 md:h-full md:w-auto md:aspect-square">
-          <Doughnut :data="catDonut" :options="donutOptions" />
+          <Doughnut :data="catDonut" :options="catDonutOptions" />
           <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <span class="text-[11px] font-semibold text-muted-foreground">Total</span>
             <span class="text-sm font-extrabold text-foreground">{{ formatBRLk(totalCost) }}</span>
@@ -270,7 +356,7 @@ const compOptions = { ...baseOptions, plugins: { legend: { position: "bottom" as
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in catEntries" :key="row.name" class="border-b border-border/60 hover:bg-primary/[0.04]">
+              <tr v-for="(row, i) in catEntries" :key="row.name" class="cursor-pointer border-b border-border/60 transition-colors hover:bg-primary/[0.06]" @click="selectedCatDetail = row.name">
                 <td class="px-2 py-1.5"><span class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="{ background: seriesColors[i % seriesColors.length] }" /><span class="font-medium text-foreground">{{ row.name }}</span></span></td>
                 <td class="px-2 py-1.5 text-right text-muted-foreground">{{ row.qty }}</td>
                 <td class="px-2 py-1.5 text-right font-semibold text-foreground">{{ formatBRL(row.cost) }}</td>
@@ -331,6 +417,104 @@ const compOptions = { ...baseOptions, plugins: { legend: { position: "bottom" as
                 </div>
               </div>
               <p v-if="!vehBreakdown.length" class="py-8 text-center text-sm text-muted-foreground">Nenhum custo registrado para esta placa.</p>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Modal drill-down por grupo de manutenção (tipos de custo) -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="selectedGroup" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]" @click.self="selectedGroup = null">
+          <div class="modal-panel flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border bg-card shadow-card-md">
+            <div class="flex items-center gap-3 border-b p-4">
+              <button class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" @click="selectedGroup = null"><ArrowLeft class="h-4 w-4" /></button>
+              <div class="flex items-center gap-2">
+                <Wrench class="h-4 w-4 text-destructive" />
+                <div>
+                  <p class="text-sm font-bold uppercase tracking-wide text-foreground">{{ selectedGroup }}</p>
+                  <p class="text-[10px] text-muted-foreground">Detalhamento por tipo de custo</p>
+                </div>
+              </div>
+              <div class="ml-auto text-right">
+                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Total</p>
+                <p class="text-base font-extrabold text-foreground">{{ formatBRL(groupBreakdown.total) }}</p>
+              </div>
+              <button class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" @click="selectedGroup = null"><X class="h-4 w-4" /></button>
+            </div>
+            <div class="scrollbar-brand flex-1 overflow-auto p-5">
+              <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-card">
+                  <tr class="border-b text-muted-foreground">
+                    <th class="px-2 py-2 text-left text-xs font-semibold uppercase tracking-wider">Tipo de Custo</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider">Lançts</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider">Total</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in groupBreakdown.rows" :key="row.label" class="border-b border-border/60 hover:bg-primary/[0.04]">
+                    <td class="px-2 py-2"><span class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="{ background: row.color }" /><span class="font-medium text-foreground">{{ row.label }}</span></span></td>
+                    <td class="px-2 py-2 text-right text-muted-foreground">{{ row.qty }}</td>
+                    <td class="px-2 py-2 text-right font-semibold text-foreground">{{ formatBRL(row.total) }}</td>
+                    <td class="px-2 py-2 text-right text-muted-foreground">{{ row.pct.toFixed(1) }}%</td>
+                  </tr>
+                </tbody>
+                <tfoot><tr class="border-t-2 font-bold text-foreground"><td class="px-2 py-2">TOTAL</td><td class="px-2 py-2 text-right">{{ groupBreakdown.qty }}</td><td class="px-2 py-2 text-right">{{ formatBRL(groupBreakdown.total) }}</td><td class="px-2 py-2 text-right">100%</td></tr></tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Modal drill-down por categoria (custos por veículo/placa) -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="selectedCatDetail" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]" @click.self="selectedCatDetail = null">
+          <div class="modal-panel flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border bg-card shadow-card-md">
+            <div class="flex items-center gap-3 border-b p-4">
+              <button class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" @click="selectedCatDetail = null"><ArrowLeft class="h-4 w-4" /></button>
+              <div class="flex items-center gap-2">
+                <Layers class="h-4 w-4 text-primary-hover" />
+                <div>
+                  <p class="text-sm font-bold uppercase tracking-wide text-foreground">{{ selectedCatDetail }}</p>
+                  <p class="text-[10px] text-muted-foreground">Custos por veículo (placa)</p>
+                </div>
+              </div>
+              <div class="ml-auto text-right">
+                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Total</p>
+                <p class="text-base font-extrabold text-foreground">{{ formatBRL(catDetail.total) }}</p>
+              </div>
+              <button class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" @click="selectedCatDetail = null"><X class="h-4 w-4" /></button>
+            </div>
+            <div class="scrollbar-brand flex-1 space-y-4 overflow-auto p-5">
+              <div v-if="catDetail.plates.length" class="h-56"><Bar :data="catDetailChart" :options="catDetailOptions" /></div>
+              <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-card">
+                  <tr class="border-b text-muted-foreground">
+                    <th class="px-2 py-2 text-left text-xs font-semibold uppercase tracking-wider">Placa</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider text-warning">Abastecimento</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider text-destructive">Manutenção</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider text-success">Operacional</th>
+                    <th class="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wider">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="p in catDetail.plates" :key="p.plate" class="border-b border-border/60 hover:bg-primary/[0.04]">
+                    <td class="px-2 py-2">
+                      <p class="font-bold tracking-widest text-foreground">{{ p.plate }}</p>
+                      <p v-if="p.model" class="text-[10px] text-muted-foreground">{{ p.model }}</p>
+                    </td>
+                    <td class="px-2 py-2 text-right tabular-nums text-muted-foreground">{{ formatBRL(p.Abastecimento) }}</td>
+                    <td class="px-2 py-2 text-right tabular-nums text-muted-foreground">{{ formatBRL(p.Manutenção) }}</td>
+                    <td class="px-2 py-2 text-right tabular-nums text-muted-foreground">{{ formatBRL(p.Operacional) }}</td>
+                    <td class="px-2 py-2 text-right font-extrabold text-foreground">{{ formatBRL(p.total) }}</td>
+                  </tr>
+                </tbody>
+                <tfoot><tr class="border-t-2 font-bold text-foreground"><td class="px-2 py-2">TOTAL</td><td class="px-2 py-2 text-right text-warning">{{ formatBRL(catDetail.plates.reduce((s, p) => s + p.Abastecimento, 0)) }}</td><td class="px-2 py-2 text-right text-destructive">{{ formatBRL(catDetail.plates.reduce((s, p) => s + p.Manutenção, 0)) }}</td><td class="px-2 py-2 text-right text-success">{{ formatBRL(catDetail.plates.reduce((s, p) => s + p.Operacional, 0)) }}</td><td class="px-2 py-2 text-right">{{ formatBRL(catDetail.total) }}</td></tr></tfoot>
+              </table>
             </div>
           </div>
         </div>
