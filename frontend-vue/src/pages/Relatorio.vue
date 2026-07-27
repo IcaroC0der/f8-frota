@@ -14,6 +14,8 @@ import { exportRelatorioPDF, exportRelatorioExcel, exportAnalisePDF } from "@/li
 interface Row {
   date: string; module: string; plate: string; _cat: string;
   description: string; supplier: string; total_value: number;
+  // Campos extras usados pelos gráficos da Análise Executiva (não aparecem na tabela).
+  cost_type?: string; cost_group?: string; classification?: string; cost_name?: string; quantity?: number;
 }
 
 const loading = ref(true);
@@ -40,9 +42,9 @@ onMounted(async () => {
     const catOf = (p: string) => vehs.find((v: any) => v.plate === p)?.category_name || "Sem Categoria";
 
     rows.value = [
-      ...fuel.map((r: any) => ({ date: r.date, module: "Abastecimento", plate: r.plate ?? "", _cat: catOf(r.plate), description: r.cost_type, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
-      ...maint.map((r: any) => ({ date: r.date, module: "Manutenção", plate: r.plate ?? "", _cat: catOf(r.plate), description: `${r.classification} / ${r.cost_type}`, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
-      ...oper.map((r: any) => ({ date: r.date, module: "Operacional", plate: r.plate ?? "", _cat: catOf(r.plate), description: r.cost_name, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0) })),
+      ...fuel.map((r: any) => ({ date: r.date, module: "Abastecimento", plate: r.plate ?? "", _cat: catOf(r.plate), description: r.cost_type, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0), cost_type: r.cost_type, quantity: Number(r.quantity || 0) })),
+      ...maint.map((r: any) => ({ date: r.date, module: "Manutenção", plate: r.plate ?? "", _cat: catOf(r.plate), description: `${r.classification} / ${r.cost_type}`, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0), classification: r.classification, cost_group: r.cost_group, cost_type: r.cost_type })),
+      ...oper.map((r: any) => ({ date: r.date, module: "Operacional", plate: r.plate ?? "", _cat: catOf(r.plate), description: r.cost_name, supplier: r.supplier ?? "", total_value: Number(r.total_value || 0), cost_name: r.cost_name })),
     ].sort((a, b) => (a.date < b.date ? 1 : -1));
   } finally {
     loading.value = false;

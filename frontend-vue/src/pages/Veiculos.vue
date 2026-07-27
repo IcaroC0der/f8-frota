@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Truck, Plus, Wifi, WifiOff, AlertTriangle, Tag } from "lucide-vue-next";
+import { Truck, Plus, Wifi, WifiOff, AlertTriangle, Tag, FileDown, Search, CheckSquare, Square } from "lucide-vue-next";
 import { toast } from "vue-sonner";
-import { vehicles, vehicleCategories, type Vehicle, type VehicleCategory } from "@/services/api";
+import {
+  vehicles, vehicleCategories, fuelRecords, maintenanceRecords, operationalCostRecords,
+  type Vehicle, type VehicleCategory,
+} from "@/services/api";
 import { useResource } from "@/composables/useResource";
+import { exportVeiculosPDF } from "@/lib/exportRelatorio";
 import PageHeader from "@/components/ui/PageHeader.vue";
 import DataTable from "@/components/ui/DataTable.vue";
 import Modal from "@/components/ui/Modal.vue";
@@ -94,13 +98,86 @@ async function submit() {
     : await create(payload);
   if (ok) dialogOpen.value = false;
 }
+
+/* ---------------- Relatório por Veículo ---------------- */
+const reportOpen = ref(false);
+const reportSearch = ref("");
+const selectedPlates = ref<string[]>([]);
+const reportRows = ref<any[]>([]);
+const recordsLoaded = ref(false);
+const loadingRecords = ref(false);
+
+async function ensureRecords() {
+  if (recordsLoaded.value) return;
+  loadingRecords.value = true;
+  try {
+    const [fuel, maint, oper] = await Promise.all([
+      fuelRecords.list({ limit: 10000 }),
+      maintenanceRecords.list({ limit: 10000 }),
+      operationalCostRecords.list({ limit: 10000 }),
+    ]);
+    reportRows.value = [
+      ...fuel.map((r: any) => ({ plate: r.plate ?? "", module: "Abastecimento", description: r.cost_type, total_value: Number(r.total_value || 0), date: r.date })),
+      ...maint.map((r: any) => ({ plate: r.plate ?? "", module: "Manutenção", description: `${r.classification} / ${r.cost_type}`, total_value: Number(r.total_value || 0), date: r.date })),
+      ...oper.map((r: any) => ({ plate: r.plate ?? "", module: "Operacional", description: r.cost_name, total_value: Number(r.total_value || 0), date: r.date })),
+    ];
+    recordsLoaded.value = true;
+  } catch {
+    toast.error("Erro ao carregar os lançamentos para o relatório");
+  } finally {
+    loadingRecords.value = false;
+  }
+}
+
+function openReport() {
+  reportOpen.value = true;
+  ensureRecords();
+}
+
+const reportList = computed(() => {
+  const q = reportSearch.value.toUpperCase().trim();
+  return items.value
+    .filter((v) => !q || (v.plate || "").toUpperCase().includes(q))
+    .slice()
+    .sort((a, b) => (a.plate || "").localeCompare(b.plate || ""));
+});
+const isSel = (p: string) => selectedPlates.value.includes(p);
+function toggleSel(p: string) {
+  const i = selectedPlates.value.indexOf(p);
+  if (i >= 0) selectedPlates.value.splice(i, 1);
+  else selectedPlates.value.push(p);
+}
+const allVisibleSelected = computed(
+  () => reportList.value.length > 0 && reportList.value.every((v) => isSel(v.plate)),
+);
+function toggleSelectAll() {
+  if (allVisibleSelected.value) {
+    const visible = new Set(reportList.value.map((v) => v.plate));
+    selectedPlates.value = selectedPlates.value.filter((p) => !visible.has(p));
+  } else {
+    const set = new Set(selectedPlates.value);
+    reportList.value.forEach((v) => set.add(v.plate));
+    selectedPlates.value = [...set];
+  }
+}
+
+async function exportReport() {
+  if (!selectedPlates.value.length) return toast.error("Selecione ao menos um veículo");
+  await ensureRecords();
+  const sel = items.value.filter((v) => selectedPlates.value.includes(v.plate));
+  exportVeiculosPDF({ vehicles: sel, rows: reportRows.value });
+  reportOpen.value = false;
+}
 </script>
 
 <template>
   <div class="w-full p-6 md:p-10">
     <PageHeader title="Veículos" subtitle="Cadastro e gerenciamento da frota" :icon="Truck">
       <template #actions>
-        <Button @click="openAdd"><Plus class="h-4 w-4" /> Novo Veículo</Button>
+        <div class="flex gap-2">
+          <Button variant="outline" @click="openReport"><FileDown class="h-4 w-4" /> Relatório por Veículo</Button>
+          <Button @click="openAdd"><Plus class="h-4 w-4" /> Novo Veículo</Button>
+        </div>
       </template>
     </PageHeader>
 
@@ -192,6 +269,60 @@ async function submit() {
           <span class="text-sm font-medium">Veículo Ativo</span>
           <input v-model="form.is_active" type="checkbox" class="h-5 w-5 accent-primary" />
         </label>
+      </div>
+    </Modal>
+
+    <!-- Relatório por Veículo -->
+    <Modal
+      :open="reportOpen"
+      title="Relatório por Veículo"
+      submit-label="Exportar PDF"
+      @close="reportOpen = false"
+      @submit="exportReport"
+    >
+      <div class="space-y-3">
+        <p class="text-sm text-muted-foreground">
+          Selecione os veículos que entrarão no relatório. Cada veículo gera uma página com os custos por módulo.
+        </p>
+
+        <!-- Busca por placa -->
+        <div class="relative">
+          <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input v-model="reportSearch" class="ui-input pl-9 uppercase" placeholder="Buscar placa..." />
+        </div>
+
+        <!-- Toolbar: selecionar todos / contagem -->
+        <div class="flex items-center justify-between">
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary/50 hover:bg-primary/[0.06]"
+            @click="toggleSelectAll"
+          >
+            <component :is="allVisibleSelected ? CheckSquare : Square" class="h-4 w-4 text-primary-hover" />
+            {{ allVisibleSelected ? "Desmarcar todos" : "Selecionar todos" }}
+          </button>
+          <span class="text-xs font-medium text-muted-foreground">
+            <span class="font-bold text-foreground">{{ selectedPlates.length }}</span> selecionado(s)
+          </span>
+        </div>
+
+        <!-- Lista de veículos -->
+        <div v-if="loadingRecords" class="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+          <Spinner /> Carregando lançamentos...
+        </div>
+        <div v-else class="scrollbar-brand max-h-[42vh] space-y-1 overflow-auto rounded-lg border p-1">
+          <label
+            v-for="v in reportList" :key="v.id"
+            class="flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-primary/[0.06]"
+            :class="isSel(v.plate) && 'bg-primary/[0.06]'"
+          >
+            <input type="checkbox" :checked="isSel(v.plate)" class="h-4 w-4 accent-primary" @change="toggleSel(v.plate)" />
+            <span class="rounded bg-muted px-2 py-0.5 text-sm font-bold tracking-widest">{{ v.plate }}</span>
+            <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{{ v.vehicle_model || "—" }}</span>
+            <Badge tone="bg-info/10 text-info border-info/20">{{ v.category_name }}</Badge>
+          </label>
+          <p v-if="!reportList.length" class="py-8 text-center text-sm text-muted-foreground">Nenhum veículo encontrado</p>
+        </div>
       </div>
     </Modal>
   </div>
