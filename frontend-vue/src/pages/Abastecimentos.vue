@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { Fuel, Plus, DollarSign, Droplets, Gauge, Car, Pencil, Trash2 } from "lucide-vue-next";
+import { Fuel, Plus, DollarSign, Droplets, Gauge, Car, Pencil, Trash2, Upload, Download, FileSpreadsheet, CheckCircle2, AlertTriangle, X } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { Doughnut, Bar } from "vue-chartjs";
 import {
-  fuelRecords, vehicles, fuelCostTypes,
-  type FuelRecord, type Vehicle, type FuelCostType,
+  fuelRecords, vehicles, fuelCostTypes, importFuelRecords,
+  type FuelRecord, type Vehicle, type FuelCostType, type FuelBulkResult,
 } from "@/services/api";
+import { parseImportFile, downloadTemplate, type ImportRow } from "@/lib/importAbastecimentos";
 import { useResource } from "@/composables/useResource";
 import { formatBRL, formatDate } from "@/lib/utils";
 import { seriesColors, palette, baseOptions, brlTick } from "@/lib/charts";
@@ -213,13 +214,70 @@ async function confirmDelete() {
   if (deleteId.value) await remove(deleteId.value);
   deleteId.value = null;
 }
+
+/* ---------- importação em massa (planilha/PDF) ---------- */
+const importOpen = ref(false);
+const importStep = ref<"upload" | "preview" | "importing" | "done">("upload");
+const importFileName = ref("");
+const importRows = ref<ImportRow[]>([]);
+const importErrors = ref<string[]>([]);
+const importResult = ref<FuelBulkResult | null>(null);
+const parsing = ref(false);
+
+function openImport() {
+  importStep.value = "upload";
+  importFileName.value = "";
+  importRows.value = [];
+  importErrors.value = [];
+  importResult.value = null;
+  importOpen.value = true;
+}
+
+async function onImportFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  importFileName.value = file.name;
+  parsing.value = true;
+  importRows.value = [];
+  importErrors.value = [];
+  try {
+    const { rows, errors } = await parseImportFile(file);
+    importRows.value = rows;
+    importErrors.value = errors;
+    if (rows.length) importStep.value = "preview";
+    else toast.error(errors[0] || "Nenhum registro reconhecido no arquivo");
+  } catch (err: any) {
+    toast.error(err?.message || "Erro ao ler o arquivo");
+  } finally {
+    parsing.value = false;
+    (e.target as HTMLInputElement).value = "";
+  }
+}
+
+async function confirmImport() {
+  if (!importRows.value.length) return;
+  importStep.value = "importing";
+  try {
+    const res = await importFuelRecords(importRows.value);
+    importResult.value = res;
+    importStep.value = "done";
+    await fetchAll();
+  } catch (err: any) {
+    toast.error(err?.response?.data?.detail || err?.message || "Erro ao importar");
+    importStep.value = "preview";
+  }
+}
 </script>
 
 <template>
   <div class="w-full p-6 md:p-10">
     <PageHeader title="Abastecimentos" subtitle="Lançamentos de combustível" :icon="Fuel">
       <template #actions>
-        <Button @click="openAdd"><Plus class="h-4 w-4" /> Novo Abastecimento</Button>
+        <div class="flex flex-wrap gap-2">
+          <Button variant="outline" @click="downloadTemplate"><Download class="h-4 w-4" /> Baixar modelo</Button>
+          <Button variant="outline" @click="openImport"><Upload class="h-4 w-4" /> Importar</Button>
+          <Button @click="openAdd"><Plus class="h-4 w-4" /> Novo Abastecimento</Button>
+        </div>
       </template>
     </PageHeader>
 
@@ -416,6 +474,128 @@ async function confirmDelete() {
     <Modal :open="!!deleteId" title="Confirmar exclusão" submit-label="Excluir" @close="deleteId = null" @submit="confirmDelete">
       <p class="text-sm text-muted-foreground">Tem certeza que deseja excluir este lançamento? Esta ação não poderá ser desfeita.</p>
     </Modal>
+
+    <!-- Importar em massa -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="importOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]" @click.self="importOpen = false">
+          <div class="modal-panel flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border bg-card shadow-card-md">
+            <div class="flex items-center justify-between border-b p-4">
+              <div class="flex items-center gap-2">
+                <Upload class="h-5 w-5 text-primary-hover" />
+                <h2 class="text-base font-bold text-foreground">Importar Abastecimentos</h2>
+              </div>
+              <button class="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" @click="importOpen = false"><X class="h-4 w-4" /></button>
+            </div>
+
+            <div class="scrollbar-brand flex-1 overflow-auto p-5">
+              <!-- Upload -->
+              <div v-if="importStep === 'upload'" class="space-y-4">
+                <div class="rounded-xl border-2 border-dashed bg-muted/30 p-8 text-center">
+                  <FileSpreadsheet class="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                  <p class="mb-1 text-sm font-medium text-foreground">Selecione um arquivo CSV, Excel ou PDF</p>
+                  <p class="mb-4 text-xs text-muted-foreground">
+                    Use a planilha-modelo para o formato correto. O PDF do relatório de combustível do sistema antigo também é aceito.
+                  </p>
+                  <input
+                    type="file" accept=".csv,.xlsx,.xls,.pdf" :disabled="parsing" @change="onImportFile"
+                    class="block w-full text-xs text-muted-foreground file:mr-4 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary file:px-6 file:py-2 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary-hover"
+                  />
+                  <p v-if="parsing" class="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground"><Spinner :size="4" /> Lendo arquivo...</p>
+                </div>
+                <button class="flex items-center gap-2 text-xs font-semibold text-primary-hover hover:underline" @click="downloadTemplate">
+                  <Download class="h-3.5 w-3.5" /> Baixar planilha-modelo
+                </button>
+                <div v-if="importErrors.length && !importRows.length" class="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {{ importErrors[0] }}
+                </div>
+              </div>
+
+              <!-- Pré-visualização -->
+              <div v-else-if="importStep === 'preview'" class="space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                    <CheckCircle2 class="h-3.5 w-3.5" /> {{ importRows.length }} válido(s)
+                  </span>
+                  <span v-if="importErrors.length" class="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+                    <AlertTriangle class="h-3.5 w-3.5" /> {{ importErrors.length }} com problema
+                  </span>
+                  <span class="text-xs text-muted-foreground">de {{ importFileName }}</span>
+                </div>
+
+                <div class="scrollbar-brand max-h-[42vh] overflow-auto rounded-lg border">
+                  <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-muted/70 backdrop-blur">
+                      <tr>
+                        <th class="px-2 py-1.5 text-left font-semibold uppercase text-muted-foreground">Data</th>
+                        <th class="px-2 py-1.5 text-left font-semibold uppercase text-muted-foreground">Placa</th>
+                        <th class="px-2 py-1.5 text-left font-semibold uppercase text-muted-foreground">Tipo</th>
+                        <th class="px-2 py-1.5 text-right font-semibold uppercase text-muted-foreground">Qtd</th>
+                        <th class="px-2 py-1.5 text-right font-semibold uppercase text-muted-foreground">Valor</th>
+                        <th class="px-2 py-1.5 text-left font-semibold uppercase text-muted-foreground">Fornecedor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, i) in importRows.slice(0, 100)" :key="i" class="border-b border-border/60">
+                        <td class="whitespace-nowrap px-2 py-1.5">{{ formatDate(r.date) }}</td>
+                        <td class="whitespace-nowrap px-2 py-1.5 font-bold tracking-widest">{{ r.plate }}</td>
+                        <td class="whitespace-nowrap px-2 py-1.5">{{ r.cost_type }}</td>
+                        <td class="px-2 py-1.5 text-right tabular-nums">{{ r.quantity }}</td>
+                        <td class="px-2 py-1.5 text-right font-semibold tabular-nums">{{ formatBRL(r.total_value) }}</td>
+                        <td class="max-w-[160px] truncate px-2 py-1.5 text-muted-foreground">{{ r.supplier || "—" }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-if="importRows.length > 100" class="text-xs text-muted-foreground">Mostrando 100 de {{ importRows.length }} registros. Todos serão importados.</p>
+
+                <details v-if="importErrors.length" class="rounded-lg border border-warning/20 bg-warning/[0.06] p-3">
+                  <summary class="cursor-pointer text-xs font-semibold text-warning">{{ importErrors.length }} linha(s) ignorada(s) — ver detalhes</summary>
+                  <ul class="mt-2 max-h-32 space-y-0.5 overflow-auto text-xs text-muted-foreground">
+                    <li v-for="(e, i) in importErrors.slice(0, 60)" :key="i">• {{ e }}</li>
+                  </ul>
+                </details>
+              </div>
+
+              <!-- Importando -->
+              <div v-else-if="importStep === 'importing'" class="flex flex-col items-center justify-center gap-4 py-16">
+                <Spinner :size="10" />
+                <p class="text-sm text-muted-foreground">Importando {{ importRows.length }} registro(s)...</p>
+              </div>
+
+              <!-- Concluído -->
+              <div v-else-if="importStep === 'done' && importResult" class="space-y-4">
+                <div class="rounded-xl border border-success/20 bg-success/10 p-6 text-center">
+                  <CheckCircle2 class="mx-auto mb-3 h-12 w-12 text-success" />
+                  <p class="text-lg font-bold text-success">{{ importResult.created }} abastecimento(s) importado(s)!</p>
+                  <p v-if="importResult.skipped" class="mt-1 text-sm text-warning">{{ importResult.skipped }} ignorado(s) (veja abaixo)</p>
+                </div>
+                <details v-if="importResult.errors.length" class="rounded-lg border border-warning/20 bg-warning/[0.06] p-3">
+                  <summary class="cursor-pointer text-xs font-semibold text-warning">Linhas ignoradas</summary>
+                  <ul class="mt-2 max-h-40 space-y-0.5 overflow-auto text-xs text-muted-foreground">
+                    <li v-for="(e, i) in importResult.errors" :key="i">• Linha {{ e.index + 1 }} ({{ e.plate || "—" }}): {{ e.reason }}</li>
+                  </ul>
+                </details>
+              </div>
+            </div>
+
+            <!-- Rodapé -->
+            <div class="flex justify-end gap-2 border-t p-4">
+              <template v-if="importStep === 'upload'">
+                <Button variant="outline" @click="importOpen = false">Cancelar</Button>
+              </template>
+              <template v-else-if="importStep === 'preview'">
+                <Button variant="outline" @click="importStep = 'upload'">Voltar</Button>
+                <Button @click="confirmImport"><CheckCircle2 class="h-4 w-4" /> Importar {{ importRows.length }} registro(s)</Button>
+              </template>
+              <template v-else-if="importStep === 'done'">
+                <Button @click="importOpen = false">Fechar</Button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -429,4 +609,8 @@ async function confirmDelete() {
 .pg {
   @apply flex h-7 min-w-[1.75rem] items-center justify-center rounded-md border bg-card px-1.5 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40;
 }
+.modal-enter-active, .modal-leave-active { transition: opacity 0.25s ease-in-out; }
+.modal-enter-active .modal-panel, .modal-leave-active .modal-panel { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease-in-out; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-from .modal-panel, .modal-leave-to .modal-panel { transform: scale(0.95) translateY(8px); opacity: 0; }
 </style>

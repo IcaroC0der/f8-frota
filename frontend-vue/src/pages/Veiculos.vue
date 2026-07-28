@@ -7,6 +7,7 @@ import {
   type Vehicle, type VehicleCategory,
 } from "@/services/api";
 import { useResource } from "@/composables/useResource";
+import { formatDate } from "@/lib/utils";
 import { exportVeiculosPDF } from "@/lib/exportRelatorio";
 import PageHeader from "@/components/ui/PageHeader.vue";
 import DataTable from "@/components/ui/DataTable.vue";
@@ -102,6 +103,8 @@ async function submit() {
 /* ---------------- Relatório por Veículo ---------------- */
 const reportOpen = ref(false);
 const reportSearch = ref("");
+const reportFrom = ref("");
+const reportTo = ref("");
 const selectedPlates = ref<string[]>([]);
 const reportRows = ref<any[]>([]);
 const recordsLoaded = ref(false);
@@ -161,11 +164,21 @@ function toggleSelectAll() {
   }
 }
 
+function reportPeriodLabel() {
+  const f = reportFrom.value, t = reportTo.value;
+  if (f && t) return `${formatDate(f)} — ${formatDate(t)}`;
+  if (f) return `A partir de ${formatDate(f)}`;
+  if (t) return `Até ${formatDate(t)}`;
+  return "Todo o período";
+}
+
 async function exportReport() {
   if (!selectedPlates.value.length) return toast.error("Selecione ao menos um veículo");
   await ensureRecords();
   const sel = items.value.filter((v) => selectedPlates.value.includes(v.plate));
-  exportVeiculosPDF({ vehicles: sel, rows: reportRows.value });
+  const f = reportFrom.value, t = reportTo.value;
+  const rows = reportRows.value.filter((r) => (!f || r.date >= f) && (!t || r.date <= t));
+  exportVeiculosPDF({ vehicles: sel, rows, periodLabel: reportPeriodLabel() });
   reportOpen.value = false;
 }
 </script>
@@ -284,6 +297,12 @@ async function exportReport() {
         <p class="text-sm text-muted-foreground">
           Selecione os veículos que entrarão no relatório. Cada veículo gera uma página com os custos por módulo.
         </p>
+
+        <!-- Filtro por período -->
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block"><span class="mb-1 block text-xs font-medium uppercase text-muted-foreground">Período — De</span><input v-model="reportFrom" type="date" class="ui-input" /></label>
+          <label class="block"><span class="mb-1 block text-xs font-medium uppercase text-muted-foreground">Período — Até</span><input v-model="reportTo" type="date" class="ui-input" /></label>
+        </div>
 
         <!-- Busca por placa -->
         <div class="relative">

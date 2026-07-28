@@ -29,6 +29,17 @@ const fCat = ref("");
 const fSupplier = ref("");
 const fClass = ref("");
 const fPlate = ref("");
+// Comparação de períodos (Período B).
+const compareOn = ref(false);
+const fFrom2 = ref("");
+const fTo2 = ref("");
+
+function periodLabel(from: string, to: string) {
+  if (from && to) return `${formatDate(from)} — ${formatDate(to)}`;
+  if (from) return `A partir de ${formatDate(from)}`;
+  if (to) return `Até ${formatDate(to)}`;
+  return "Todo o período";
+}
 
 onMounted(async () => {
   try {
@@ -51,18 +62,34 @@ onMounted(async () => {
   }
 });
 
+// Filtros que NÃO dependem de data (reaproveitados pelos dois períodos).
+function matchesBase(r: Row) {
+  if (fModule.value !== "all" && r.module !== fModule.value) return false;
+  if (fPlate.value && r.plate !== fPlate.value) return false;
+  if (fCat.value && r._cat !== fCat.value) return false;
+  if (fSupplier.value && r.supplier !== fSupplier.value) return false;
+  if (fClass.value && r.description !== fClass.value) return false;
+  return true;
+}
+const inRange = (d: string, from: string, to: string) => (!from || d >= from) && (!to || d <= to);
+
 const filtered = computed(() =>
-  rows.value.filter((r) => {
-    if (fModule.value !== "all" && r.module !== fModule.value) return false;
-    if (fFrom.value && r.date < fFrom.value) return false;
-    if (fTo.value && r.date > fTo.value) return false;
-    if (fPlate.value && r.plate !== fPlate.value) return false;
-    if (fCat.value && r._cat !== fCat.value) return false;
-    if (fSupplier.value && r.supplier !== fSupplier.value) return false;
-    if (fClass.value && r.description !== fClass.value) return false;
-    return true;
-  }),
+  rows.value.filter((r) => matchesBase(r) && inRange(r.date, fFrom.value, fTo.value)),
 );
+const filteredB = computed(() =>
+  rows.value.filter((r) => matchesBase(r) && inRange(r.date, fFrom2.value, fTo2.value)),
+);
+const totalsB = computed(() => {
+  let total = 0, fuel = 0, maint = 0, oper = 0;
+  for (const r of filteredB.value) {
+    total += r.total_value;
+    if (r.module === "Abastecimento") fuel += r.total_value;
+    else if (r.module === "Manutenção") maint += r.total_value;
+    else if (r.module === "Operacional") oper += r.total_value;
+  }
+  return { total, fuel, maint, oper, count: filteredB.value.length };
+});
+const compareActive = computed(() => compareOn.value && !!(fFrom2.value || fTo2.value));
 
 const uniq = (arr: any[]) => [...new Set(arr.filter(Boolean))].sort() as string[];
 const platesOptions = computed(() => uniq(rows.value.map(r => r.plate)));
@@ -121,12 +148,17 @@ function getExportData() {
     "Classificação": fClass.value, "Placa": fPlate.value
   }).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join(" | ") || "Nenhum filtro aplicado — exibindo todos os registros";
 
+  const compare = compareActive.value
+    ? { labelA: periodLabel(fFrom.value, fTo.value), labelB: periodLabel(fFrom2.value, fTo2.value), totalsB: totalsB.value }
+    : undefined;
+
   return {
     rows: filtered.value,
     filtersText,
     totals: totals.value,
     monthly: Object.values(monthlyAcc).sort((a: any, b: any) => a.mes.localeCompare(b.mes)),
     byPlate: Object.values(plateAcc).sort((a: any, b: any) => b.total - a.total),
+    compare,
   };
 }
 
@@ -147,6 +179,7 @@ function clearFilters() {
   fModule.value = "all";
   fFrom.value = ""; fTo.value = "";
   fCat.value = ""; fSupplier.value = ""; fClass.value = ""; fPlate.value = "";
+  compareOn.value = false; fFrom2.value = ""; fTo2.value = "";
 }
 
 const moduleTone: Record<string, string> = {
@@ -189,6 +222,24 @@ const moduleTone: Record<string, string> = {
           <select v-model="fPlate" class="ui-input"><option value="">Todas as placas</option><option v-for="p in platesOptions" :key="p" :value="p">{{ p }}</option></select>
         </label>
       </FilterBar>
+
+      <!-- Comparar períodos -->
+      <div class="mt-3 rounded-xl border bg-card p-3 shadow-card">
+        <label class="flex cursor-pointer items-center gap-2">
+          <input v-model="compareOn" type="checkbox" class="h-4 w-4 accent-primary" />
+          <span class="text-sm font-semibold text-foreground">Comparar com outro período</span>
+          <span class="text-xs text-muted-foreground">— adiciona um comparativo A × B aos relatórios exportados</span>
+        </label>
+        <div v-if="compareOn" class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="rounded-lg bg-muted/40 p-2.5">
+            <p class="mb-0.5 text-xs font-bold uppercase text-primary-hover">Período A (principal)</p>
+            <p class="text-xs text-muted-foreground">{{ periodLabel(fFrom, fTo) }} · {{ totals.count }} reg.</p>
+          </div>
+          <label class="block"><span class="mb-1 block text-xs font-medium uppercase text-muted-foreground">Período B — De</span><input v-model="fFrom2" type="date" class="ui-input" /></label>
+          <label class="block"><span class="mb-1 block text-xs font-medium uppercase text-muted-foreground">Período B — Até</span><input v-model="fTo2" type="date" class="ui-input" /></label>
+          <div class="flex items-end"><p class="text-xs text-muted-foreground">Período B: <span class="font-semibold text-foreground">{{ periodLabel(fFrom2, fTo2) }}</span> · {{ totalsB.count }} reg.</p></div>
+        </div>
+      </div>
 
       <div class="mt-4 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard label="CUSTO TOTAL" :value="formatBRLk(totals.total)" :sub="`100.0% do total geral`" tone="bg-primary/10 text-primary-hover" highlight />

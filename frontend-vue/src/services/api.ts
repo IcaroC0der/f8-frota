@@ -209,6 +209,15 @@ export const vehicleCategories = createResource<VehicleCategory>("/vehicle-categ
 export const vehicles = createResource<Vehicle>("/vehicles");
 export const fuelCostTypes = createResource<FuelCostType>("/fuel-cost-types");
 export const fuelRecords = createResource<FuelRecord>("/fuel-records");
+
+export interface FuelBulkResult {
+  created: number;
+  skipped: number;
+  errors: { index: number; plate?: string; reason: string }[];
+}
+/** Importação em massa de abastecimentos (planilha/PDF → /fuel-records/bulk). */
+export const importFuelRecords = (records: any[]) =>
+  http.post<FuelBulkResult>("/fuel-records/bulk", { records }).then((r) => r.data);
 export const maintenanceClassifications = createResource<MaintenanceClassification>(
   "/maintenance-classifications",
 );

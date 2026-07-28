@@ -2,7 +2,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { Chart } from "chart.js";
-import { formatBRL, formatDate } from "./utils";
+import ChartDataLabels from "chartjs-plugin-datalabels";
+import { formatBRL, formatBRLk, formatDate } from "./utils";
 // Importar "@/lib/charts" também registra os controllers do Chart.js (side-effect).
 import { palette, moduleColors, seriesColors, brlTick } from "./charts";
 
@@ -20,7 +21,41 @@ export interface ReportData {
   };
   monthly: any[];
   byPlate: any[];
+  // Comparação entre dois períodos (opcional). O Período A é o próprio `totals`.
+  compare?: {
+    labelA: string;
+    labelB: string;
+    totalsB: { total: number; fuel: number; maint: number; oper: number; count: number };
+  };
 }
+
+/** Linhas de uma tabela comparativa A×B: [métrica, A, B, Δ, Δ%]. */
+function comparisonRows(a: any, b: any): (string | number)[][] {
+  const cur = (v: number) => formatBRL(v);
+  const row = (label: string, av: number, bv: number, isCur = true) => {
+    const f = isCur ? cur : (v: number) => String(v);
+    const d = av - bv;
+    const dp = bv !== 0 ? (d / bv) * 100 : av > 0 ? 100 : 0;
+    const s = d >= 0 ? "+" : "";
+    return [label, f(av), f(bv), `${s}${f(d)}`, `${s}${dp.toFixed(1)}%`];
+  };
+  return [
+    row("Custo Total", a.total, b.total),
+    row("Abastecimento", a.fuel, b.fuel),
+    row("Manutenção", a.maint, b.maint),
+    row("Operacional", a.oper, b.oper),
+    row("Registros", a.count, b.count, false),
+  ];
+}
+
+/** Colore Δ/Δ% (positivo = aumento de custo = vermelho; negativo = verde). */
+const cmpCellColor = (d: any) => {
+  if ((d.column.index === 3 || d.column.index === 4) && d.section === "body") {
+    const t = String(d.cell.raw);
+    if (t.startsWith("+")) d.cell.styles.textColor = [239, 68, 68];
+    else if (t.startsWith("-")) d.cell.styles.textColor = [34, 197, 94];
+  }
+};
 
 /* ============================================================================
  * Renderização de gráficos do Chart.js como imagem PNG (para embutir no PDF).
@@ -51,7 +86,8 @@ function chartImage(cfg: any, wPt: number, hPt: number): string {
   const chart = new Chart(canvas, {
     ...cfg,
     options: { ...(cfg.options || {}), responsive: false, maintainAspectRatio: false, animation: false, devicePixelRatio: 1 },
-    plugins: [whiteBg, ...((cfg.plugins as any[]) || [])],
+    // ChartDataLabels registrado só aqui (não afeta os gráficos das telas).
+    plugins: [whiteBg, ChartDataLabels, ...((cfg.plugins as any[]) || [])],
   });
   // JPEG (fundo branco garantido pelo plugin) — PDF muito mais leve que PNG.
   const url = canvas.toDataURL("image/jpeg", 0.92);
@@ -63,18 +99,40 @@ function chartImage(cfg: any, wPt: number, hPt: number): string {
 // Fontes maiores porque o canvas 2x é reduzido ao caber na largura do PDF.
 const fLegend = { size: 22 };
 const fTick = { size: 18 };
+const fVal = { size: 20, weight: "bold" as const };
 const INK = "#171717";
 const GRAY = "#525252";
 const GRID = "rgba(0,0,0,0.06)";
+
+// Contraste do rótulo dentro da fatia: texto escuro sobre cor clara, branco sobre escura.
+const hexLum = (hex: string) => {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+};
+const arcLabelColor = (ctx: any) => {
+  const bg = ctx.dataset.backgroundColor?.[ctx.dataIndex];
+  return typeof bg === "string" && bg.startsWith("#") && hexLum(bg) > 0.6 ? "#171717" : "#ffffff";
+};
 
 function cfgDoughnut(labels: string[], values: number[], colors: string[]) {
   return {
     type: "doughnut",
     data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
     options: {
-      cutout: "58%",
-      layout: { padding: 8 },
-      plugins: { legend: { position: "right", labels: { usePointStyle: true, boxWidth: 12, padding: 12, font: fLegend, color: INK } } },
+      cutout: "55%",
+      layout: { padding: 10 },
+      plugins: {
+        legend: { position: "right", labels: { usePointStyle: true, boxWidth: 12, padding: 12, font: fLegend, color: INK } },
+        datalabels: {
+          color: arcLabelColor,
+          font: fVal,
+          formatter: (v: number, ctx: any) => {
+            const tot = ctx.dataset.data.reduce((s: number, x: number) => s + x, 0);
+            return v > 0 && v / tot >= 0.05 ? formatBRLk(v) : "";
+          },
+        },
+      },
     },
   };
 }
@@ -84,11 +142,32 @@ function cfgBar(labels: string[], values: number[], color: string | string[], is
     type: "bar",
     data: { labels, datasets: [{ data: values, backgroundColor: bg, borderRadius: 6, maxBarThickness: 60 }] },
     options: {
-      layout: { padding: 8 },
-      plugins: { legend: { display: false } },
+      layout: { padding: { top: 26, right: 8, bottom: 4, left: 8 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: { anchor: "end", align: "top", color: INK, font: fVal, formatter: (v: number) => (v > 0 ? (isLiters ? `${Math.round(v)} L` : formatBRLk(v)) : "") },
+      },
       scales: {
         x: { grid: { display: false }, ticks: { font: fTick, color: GRAY, maxRotation: 30, minRotation: 0, autoSkip: true } },
         y: { grid: { color: GRID }, ticks: { font: fTick, color: GRAY, callback: (v: any) => (isLiters ? `${v} L` : brlTick(v)) } },
+      },
+    },
+  };
+}
+function cfgHBar(labels: string[], values: number[], colors: string[]) {
+  return {
+    type: "bar",
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 5, maxBarThickness: 40 }] },
+    options: {
+      indexAxis: "y",
+      layout: { padding: { top: 4, right: 76, bottom: 4, left: 8 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: { anchor: "end", align: "right", clamp: true, color: INK, font: fVal, formatter: (v: number) => (v > 0 ? formatBRLk(v) : "") },
+      },
+      scales: {
+        x: { grid: { color: GRID }, ticks: { font: fTick, color: GRAY, callback: (v: any) => brlTick(v) } },
+        y: { grid: { display: false }, ticks: { font: fTick, color: GRAY } },
       },
     },
   };
@@ -98,9 +177,18 @@ function cfgLine(labels: string[], datasets: any[]) {
     type: "line",
     data: { labels, datasets },
     options: {
-      layout: { padding: 8 },
+      layout: { padding: { top: 26, right: 44, bottom: 4, left: 8 } },
       interaction: { mode: "index", intersect: false },
-      plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 12, padding: 14, font: fLegend, color: INK } } },
+      plugins: {
+        legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 12, padding: 14, font: fLegend, color: INK } },
+        datalabels: {
+          align: "top",
+          color: (ctx: any) => ctx.dataset.borderColor,
+          font: fVal,
+          display: (ctx: any) => ctx.dataIndex === ctx.dataset.data.length - 1,
+          formatter: (v: number) => (v > 0 ? formatBRLk(v) : ""),
+        },
+      },
       scales: {
         x: { grid: { display: false }, ticks: { font: fTick, color: GRAY } },
         y: { grid: { color: GRID }, ticks: { font: fTick, color: GRAY, callback: (v: any) => brlTick(v) } },
@@ -113,8 +201,11 @@ function cfgGrouped(labels: string[], datasets: any[]) {
     type: "bar",
     data: { labels, datasets },
     options: {
-      layout: { padding: 8 },
-      plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 12, padding: 14, font: fLegend, color: INK } } },
+      layout: { padding: { top: 26, right: 8, bottom: 4, left: 8 } },
+      plugins: {
+        legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 12, padding: 14, font: fLegend, color: INK } },
+        datalabels: { anchor: "end", align: "top", color: INK, font: { size: 16, weight: "bold" as const }, formatter: (v: number) => (v > 0 ? formatBRLk(v) : "") },
+      },
       scales: {
         x: { grid: { display: false }, ticks: { font: fTick, color: GRAY } },
         y: { grid: { color: GRID }, ticks: { font: fTick, color: GRAY, callback: (v: any) => brlTick(v) } },
@@ -221,6 +312,33 @@ export function exportRelatorioPDF(data: ReportData) {
     }
   };
 
+  // COMPARATIVO DE PERÍODOS (opcional)
+  if (data.compare) {
+    doc.setTextColor(10, 10, 10);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("COMPARATIVO DE PERÍODOS", margin, y);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(115, 115, 115);
+    doc.text(`Período A: ${data.compare.labelA}   ·   Período B: ${data.compare.labelB}`, margin, y + 14);
+    y += 24;
+    autoTable(doc, {
+      startY: y,
+      head: [["MÉTRICA", "PERÍODO A", "PERÍODO B", "VARIAÇÃO", "%"]],
+      body: comparisonRows(data.totals, data.compare.totalsB),
+      theme: "plain",
+      headStyles: { fillColor: [23, 23, 23], textColor: [255, 255, 255], fontStyle: "bold" },
+      styles: { fontSize: 9, cellPadding: 8, textColor: [10, 10, 10] },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+      margin: { left: margin, right: margin },
+      didParseCell: cmpCellColor,
+      didDrawPage: (d) => { y = d.cursor?.y || y; },
+    });
+    y += 20;
+  }
+
   // RESUMO POR TIPO DE CUSTO
   const tipoBody = [
     ["Abastecimento", formatBRL(data.totals.fuel), data.totals.total > 0 ? `${((data.totals.fuel / data.totals.total) * 100).toFixed(1)}%` : "0%"],
@@ -241,13 +359,14 @@ export function exportRelatorioPDF(data: ReportData) {
     didDrawPage: (data) => { y = data.cursor?.y || y; }
   });
 
-  y += 20;
+  // ===== EVOLUÇÃO MENSAL — tabela em página nova, gráfico logo abaixo =====
+  doc.addPage();
+  y = margin;
 
-  // COMPARATIVO MENSAL
+  // Tabela mês a mês
   const monthlyBody = data.monthly.map(m => [
     m.mes, formatBRL(m.abastecimento), formatBRL(m.manutencao), formatBRL(m.operacional), formatBRL(m.total)
   ]);
-
   autoTable(doc, {
     startY: y,
     head: [["MÊS", "ABASTECIMENTO", "MANUTENÇÃO", "OPERACIONAL", "TOTAL"]],
@@ -257,7 +376,45 @@ export function exportRelatorioPDF(data: ReportData) {
     styles: { fontSize: 9, cellPadding: 8, textColor: [10, 10, 10] },
     alternateRowStyles: { fillColor: [249, 250, 251] },
     margin: { left: margin, right: margin },
+    didDrawPage: (d) => { y = d.cursor?.y || y; },
   });
+  y += 24;
+
+  // Gráfico mensal (abaixo da tabela)
+  if (data.monthly.length) {
+    const cw = pageWidth - margin * 2;
+    const chartH = 200;
+    if (y + chartH + 24 > pageHeight - 40) { doc.addPage(); y = margin; }
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(10, 10, 10);
+    doc.text("EVOLUÇÃO MENSAL", margin, y);
+    y += 12;
+    const monthlyChart = {
+      type: "bar",
+      data: {
+        labels: data.monthly.map((m: any) => m.mes),
+        datasets: [
+          { label: "Abastecimento", data: data.monthly.map((m: any) => m.abastecimento), backgroundColor: moduleColors[0], stack: "s", borderRadius: 3 },
+          { label: "Manutenção", data: data.monthly.map((m: any) => m.manutencao), backgroundColor: moduleColors[1], stack: "s", borderRadius: 3 },
+          { label: "Operacional", data: data.monthly.map((m: any) => m.operacional), backgroundColor: moduleColors[2], stack: "s", borderRadius: 3 },
+        ],
+      },
+      options: {
+        layout: { padding: 8 },
+        plugins: {
+          legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 12, padding: 14, font: fLegend, color: INK } },
+          datalabels: { display: false },
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { font: fTick, color: GRAY } },
+          y: { stacked: true, grid: { color: GRID }, ticks: { font: fTick, color: GRAY, callback: (v: any) => brlTick(v) } },
+        },
+      },
+    };
+    doc.addImage(chartImage(monthlyChart, cw, chartH), "JPEG", margin, y, cw, chartH);
+    y += chartH + 16;
+  }
 
   // RESUMO POR PLACA
   doc.addPage();
@@ -520,7 +677,39 @@ export function exportAnalisePDF(data: ReportData) {
   }
   y += 180;
 
+  // ================= COMPARATIVO DE PERÍODOS (opcional) =================
+  if (data.compare) {
+    const labelA = data.compare.labelA, labelB = data.compare.labelB, tB = data.compare.totalsB;
+    doc.addPage();
+    y = margin;
+    sectionBanner("Comparativo de Períodos");
+    doc.setFontSize(9);
+    doc.setTextColor(115, 115, 115);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Período A: ${labelA}       |       Período B: ${labelB}`, margin, y);
+    y += 20;
+    const mods = ["Abastecimento", "Manutenção", "Operacional"];
+    chartBlock(`${labelA}  ×  ${labelB}`, cfgGrouped(mods, [
+      { label: `A · ${labelA}`, data: [data.totals.fuel, data.totals.maint, data.totals.oper], backgroundColor: palette.primary, borderRadius: 6 },
+      { label: `B · ${labelB}`, data: [tB.fuel, tB.maint, tB.oper], backgroundColor: palette.slate, borderRadius: 6 },
+    ]), 190);
+    autoTable(doc, {
+      startY: y,
+      head: [["MÉTRICA", "PERÍODO A", "PERÍODO B", "VARIAÇÃO", "%"]],
+      body: comparisonRows(data.totals, tB),
+      theme: "plain",
+      headStyles: { fillColor: [23, 23, 23], textColor: [255, 255, 255], fontStyle: "bold" },
+      styles: { fontSize: 9, cellPadding: 8, textColor: [10, 10, 10] },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+      margin: { left: margin, right: margin },
+      didParseCell: cmpCellColor,
+    });
+  }
+
   // ================= VISÃO GERAL =================
+  doc.addPage();
+  y = margin;
   sectionBanner("Visão Geral");
 
   if (months.length) {
@@ -634,7 +823,7 @@ export function exportAnalisePDF(data: ReportData) {
  * Relatório por Veículo — uma página por placa selecionada, com KPIs de custo
  * (total + por módulo) e o detalhamento dos lançamentos. Identidade F8.
  * ========================================================================== */
-export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[] }) {
+export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[]; periodLabel?: string }) {
   const doc = new jsPDF("p", "pt", "a4");
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -706,7 +895,8 @@ export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[] }) {
   const totalRegs = perVeh.reduce((s, x) => s + x.count, 0);
   const selPlates = new Set(data.vehicles.map((v) => v.plate));
   const allDates = data.rows.filter((r) => selPlates.has(r.plate)).map((r) => r.date).filter(Boolean).sort();
-  const periodo = allDates.length ? `${formatDate(allDates[0])} — ${formatDate(allDates[allDates.length - 1])}` : "Todo o período";
+  const periodo = data.periodLabel
+    || (allDates.length ? `${formatDate(allDates[0])} — ${formatDate(allDates[allDates.length - 1])}` : "Todo o período");
 
   // ---- Capa ----
   doc.setFillColor(23, 23, 23);
@@ -782,9 +972,19 @@ export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[] }) {
       acc[k].qty++;
       acc[k].total += val(r);
     }
-    const body = Object.values(acc)
-      .sort((a: any, b: any) => b.total - a.total)
-      .map((x: any) => [x.mod, x.desc, x.qty, formatBRL(x.total), pctOf(x.total, veh.total)]);
+    // Visão gráfica por veículo: custos por tipo (barras horizontais, cor por módulo)
+    const modColor = (m: string) => (m === "Abastecimento" ? moduleColors[0] : m === "Manutenção" ? moduleColors[1] : moduleColors[2]);
+    const items = Object.values(acc).sort((a: any, b: any) => b.total - a.total) as any[];
+    const top = items.slice(0, 10);
+    const chartH = Math.max(130, Math.min(230, top.length * 24 + 46));
+    if (y + chartH > pageHeight - 44) { doc.addPage(); y = margin; }
+    doc.addImage(
+      chartImage(cfgHBar(top.map((x) => x.desc), top.map((x) => x.total), top.map((x) => modColor(x.mod))), contentW, chartH),
+      "JPEG", margin, y, contentW, chartH,
+    );
+    y += chartH + 14;
+
+    const body = items.map((x: any) => [x.mod, x.desc, x.qty, formatBRL(x.total), pctOf(x.total, veh.total)]);
 
     autoTable(doc, {
       startY: y,

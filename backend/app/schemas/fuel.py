@@ -75,3 +75,22 @@ class FuelRecordUpdate(BaseModel):
 class FuelRecordResponse(FuelRecordBase, Base44Read):
     vehicle_id: UUID
     fuel_cost_type_id: UUID
+
+
+# ─────────────────────── Importação em massa ─────────────────────────
+
+
+class FuelRecordBulkCreate(BaseModel):
+    records: list[FuelRecordCreate]
+
+
+class FuelRecordBulkError(BaseModel):
+    index: int
+    plate: str | None = None
+    reason: str
+
+
+class FuelRecordBulkResult(BaseModel):
+    created: int
+    skipped: int
+    errors: list[FuelRecordBulkError]
