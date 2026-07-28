@@ -249,6 +249,15 @@ export const createMaintenanceRecord = maintenanceRecords.create;
 export const getOperationalCostRecords = operationalCostRecords.list;
 export const createOperationalCostRecord = operationalCostRecords.create;
 
+export async function uploadFile(file: File): Promise<{ url: string }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const { data } = await http.post<{ url: string; pathname: string }>("/upload", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
 export default {
   http,
   auth,

@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     ALGORITHM: str = "HS256"
 
+    # Vercel Blob
+    BLOB_READ_WRITE_TOKEN: str = ""
+
     # CORS — string separada por vírgula no .env
     BACKEND_CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 

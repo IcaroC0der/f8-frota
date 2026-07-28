@@ -4,7 +4,7 @@ import { Wrench, Plus, DollarSign, ShieldCheck, BarChart3, Car, Paperclip, Penci
 import { toast } from "vue-sonner";
 import { Doughnut, Bar } from "vue-chartjs";
 import {
-  maintenanceRecords, vehicles, maintenanceClassifications, maintenanceCostTypes,
+  maintenanceRecords, vehicles, maintenanceClassifications, maintenanceCostTypes, uploadFile,
   type MaintenanceRecord, type Vehicle, type MaintenanceClassification, type MaintenanceCostType,
 } from "@/services/api";
 import { useResource } from "@/composables/useResource";
@@ -51,6 +51,20 @@ onMounted(async () => {
     maintenanceCostTypes.list({ limit: 1000 }).then((c) => (costTypes.value = c)),
   ]);
 });
+
+const uploading = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+async function handleFileUpload(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  uploading.value = true;
+  try {
+    const { url } = await uploadFile(file);
+    form.attachment_url = url;
+    toast.success("Arquivo anexado!");
+  } catch { toast.error("Erro ao enviar arquivo."); }
+  finally { uploading.value = false; if (fileInput.value) fileInput.value.value = ""; }
+}
 
 /* ---------- categoria resolvida pela placa (fallback ao denormalizado) ---------- */
 const vehByPlate = computed(() => {
@@ -442,7 +456,17 @@ async function submit() {
         <FormField label="KM"><input v-model.number="form.km" type="number" class="ui-input" /></FormField>
         <FormField label="Fornecedor"><input v-model="form.supplier" class="ui-input" /></FormField>
         <FormField label="Nota Fiscal"><input v-model="form.invoice_number" class="ui-input" /></FormField>
-        <FormField label="URL do Anexo" class="col-span-2"><input v-model="form.attachment_url" class="ui-input" placeholder="https://..." /></FormField>
+        <FormField label="Anexo (PDF/Imagem)" class="col-span-2">
+          <div class="flex items-center gap-2">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border bg-muted/40 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted">
+              <Paperclip class="h-3.5 w-3.5" />
+              {{ uploading ? "Enviando..." : "Escolher arquivo" }}
+              <input ref="fileInput" type="file" accept=".pdf,.png,.jpg,.jpeg" class="hidden" :disabled="uploading" @change="handleFileUpload" />
+            </label>
+            <a v-if="form.attachment_url" :href="form.attachment_url" target="_blank" rel="noopener noreferrer" class="text-xs text-primary underline">Ver anexo atual</a>
+            <button v-if="form.attachment_url" type="button" class="text-xs text-destructive hover:underline" @click="form.attachment_url = ''">Remover</button>
+          </div>
+        </FormField>
         <FormField label="Observação" class="col-span-2"><input v-model="form.observation" class="ui-input" /></FormField>
       </div>
     </Modal>

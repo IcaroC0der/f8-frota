@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { DollarSign, Plus, ClipboardList, CalendarDays, TrendingUp, Car, Pencil, Trash2 } from "lucide-vue-next";
+import { DollarSign, Plus, ClipboardList, CalendarDays, TrendingUp, Car, Paperclip, Pencil, Trash2 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { Doughnut, Line } from "vue-chartjs";
 import {
-  operationalCostRecords, operationalCosts, vehicles,
+  operationalCostRecords, operationalCosts, vehicles, uploadFile,
   type OperationalCostRecord, type OperationalCost, type Vehicle,
 } from "@/services/api";
 import { useResource } from "@/composables/useResource";
@@ -156,6 +156,20 @@ const pageNumbers = computed(() => {
   }
   return out;
 });
+
+const uploading = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+async function handleFileUpload(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  uploading.value = true;
+  try {
+    const { url } = await uploadFile(file);
+    form.attachment_url = url;
+    toast.success("Arquivo anexado!");
+  } catch { toast.error("Erro ao enviar arquivo."); }
+  finally { uploading.value = false; if (fileInput.value) fileInput.value.value = ""; }
+}
 
 /* ---------- formulário ---------- */
 const dialogOpen = ref(false);
@@ -332,6 +346,12 @@ async function confirmDelete() {
               <!-- Ações -->
               <td class="px-4 py-2.5">
                 <div class="flex items-center justify-end gap-1">
+                  <a
+                    v-if="r.attachment_url" :href="r.attachment_url" target="_blank" rel="noopener noreferrer"
+                    class="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Paperclip class="h-3.5 w-3.5" />
+                  </a>
                   <button class="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" @click="openEdit(r)">
                     <Pencil class="h-3.5 w-3.5" />
                   </button>
@@ -381,7 +401,17 @@ async function confirmDelete() {
         <FormField label="Fornecedor"><input v-model="form.supplier" class="ui-input" /></FormField>
         <FormField label="Nota Fiscal"><input v-model="form.invoice_number" class="ui-input" /></FormField>
         <FormField label="KM"><input v-model.number="form.km" type="number" class="ui-input" /></FormField>
-        <FormField label="URL do Anexo"><input v-model="form.attachment_url" class="ui-input" placeholder="https://..." /></FormField>
+        <FormField label="Anexo (PDF/Imagem)">
+          <div class="flex items-center gap-2">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border bg-muted/40 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted">
+              <Paperclip class="h-3.5 w-3.5" />
+              {{ uploading ? "Enviando..." : "Escolher arquivo" }}
+              <input ref="fileInput" type="file" accept=".pdf,.png,.jpg,.jpeg" class="hidden" :disabled="uploading" @change="handleFileUpload" />
+            </label>
+            <a v-if="form.attachment_url" :href="form.attachment_url" target="_blank" rel="noopener noreferrer" class="text-xs text-primary underline">Ver anexo atual</a>
+            <button v-if="form.attachment_url" type="button" class="text-xs text-destructive hover:underline" @click="form.attachment_url = ''">Remover</button>
+          </div>
+        </FormField>
         <FormField label="Observação" class="col-span-2"><input v-model="form.observation" class="ui-input" /></FormField>
       </div>
     </Modal>

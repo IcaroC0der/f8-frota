@@ -10,6 +10,7 @@ from app.api.routers import (
     maintenance_records,
     operational_cost_records,
     operational_costs,
+    upload,
     users,
     vehicle_categories,
     vehicles,
@@ -27,3 +28,4 @@ api_router.include_router(maintenance_cost_types.router)
 api_router.include_router(maintenance_records.router)
 api_router.include_router(operational_costs.router)
 api_router.include_router(operational_cost_records.router)
+api_router.include_router(upload.router)
