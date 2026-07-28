@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, nextTick, reactive, ref } from "vue";
 import { Truck, DollarSign, Fuel, Wrench, Coins, Search, ChevronDown, ChevronUp, Gauge, Activity } from "lucide-vue-next";
 import { Doughnut, Bar } from "vue-chartjs";
 import { formatBRL, formatBRLk, formatNum, formatDate, periodRange } from "@/lib/utils";
@@ -36,6 +36,19 @@ const catOptions = computed(() => uniq(props.vehicles.map((v) => v.category_name
 /* ---- Plate multi-select dropdown ---- */
 const plateOpen = ref(false);
 const plateSearch = ref("");
+const plateBtnRef = ref<HTMLElement | null>(null);
+const platePos = reactive({ top: "0px", left: "0px", width: "240px" });
+async function openPlateDropdown() {
+  plateOpen.value = !plateOpen.value;
+  if (!plateOpen.value) return;
+  await nextTick();
+  if (plateBtnRef.value) {
+    const r = plateBtnRef.value.getBoundingClientRect();
+    platePos.top = `${r.bottom + 4}px`;
+    platePos.left = `${r.left}px`;
+    platePos.width = `${Math.max(r.width, 240)}px`;
+  }
+}
 const filteredPlates = computed(() => {
   const q = plateSearch.value.toUpperCase().trim();
   return props.vehicles.filter((v) => v.plate && (!q || v.plate.toUpperCase().includes(q))).sort((a: any, b: any) => a.plate.localeCompare(b.plate));
@@ -251,25 +264,27 @@ const modBadge = (mod: string) =>
       <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground">De</span><input v-model="filters.from" type="date" class="ui-input" /></label>
       <label class="block"><span class="mb-1 block text-xs font-medium text-muted-foreground">Até</span><input v-model="filters.to" type="date" class="ui-input" /></label>
       <!-- Plate multi-select -->
-      <div class="relative block">
+      <div class="block">
         <span class="mb-1 block text-xs font-medium text-muted-foreground">Placas ({{ filters.plates.length || "todas" }})</span>
-        <button type="button" class="ui-input flex w-full items-center justify-between gap-2 text-left" @click="plateOpen = !plateOpen">
+        <button ref="plateBtnRef" type="button" class="ui-input flex w-full items-center justify-between gap-2 text-left" @click="openPlateDropdown">
           <span class="truncate text-sm">{{ filters.plates.length ? `${filters.plates.length} selecionadas` : "Todas" }}</span>
           <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
-        <div v-if="plateOpen" class="fixed inset-0 z-10" @click="plateOpen = false" />
-        <div v-if="plateOpen" class="absolute left-0 top-full z-20 mt-1 w-60 rounded-lg border bg-card p-2 shadow-card-md">
-          <div class="relative mb-2">
-            <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input v-model="plateSearch" class="ui-input pl-8 text-xs" placeholder="Buscar placa..." />
+        <Teleport to="body">
+          <div v-if="plateOpen" class="fixed inset-0 z-[9998]" @click="plateOpen = false" />
+          <div v-if="plateOpen" class="fixed z-[9999] rounded-lg border bg-card p-2 shadow-card-md" :style="{ top: platePos.top, left: platePos.left, width: platePos.width }">
+            <div class="relative mb-2">
+              <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input v-model="plateSearch" class="ui-input pl-8 text-xs" placeholder="Buscar placa..." />
+            </div>
+            <div class="scrollbar-brand max-h-48 space-y-0.5 overflow-auto">
+              <label v-for="v in filteredPlates" :key="v.id" class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 transition-colors hover:bg-primary/[0.06]">
+                <input type="checkbox" :checked="filters.plates.includes(v.plate)" class="h-3.5 w-3.5 accent-primary" @change="togglePlate(v.plate)" />
+                <span class="text-xs font-bold tracking-wider">{{ v.plate }}</span>
+              </label>
+            </div>
           </div>
-          <div class="scrollbar-brand max-h-48 space-y-0.5 overflow-auto">
-            <label v-for="v in filteredPlates" :key="v.id" class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 transition-colors hover:bg-primary/[0.06]">
-              <input type="checkbox" :checked="filters.plates.includes(v.plate)" class="h-3.5 w-3.5 accent-primary" @change="togglePlate(v.plate)" />
-              <span class="text-xs font-bold tracking-wider">{{ v.plate }}</span>
-            </label>
-          </div>
-        </div>
+        </Teleport>
       </div>
     </FilterBar>
 
