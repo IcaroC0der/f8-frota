@@ -9,7 +9,7 @@ import Button from "@/components/ui/Button.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Spinner from "@/components/ui/Spinner.vue";
 import StatCard from "@/components/ui/StatCard.vue";
-import { exportRelatorioPDF, exportRelatorioExcel, exportAnalisePDF } from "@/lib/exportRelatorio";
+import { exportRelatorioPDF, exportRelatorioExcel } from "@/lib/exportRelatorio";
 
 interface Row {
   date: string; module: string; plate: string; _cat: string;
@@ -165,9 +165,9 @@ function getExportData() {
 function handleExportPDF() {
   exportRelatorioPDF(getExportData());
 }
-function handleExportAnalisePDF() {
-  exportAnalisePDF(getExportData());
-}
+// function handleExportAnalisePDF() {
+//   exportAnalisePDF(getExportData());
+// }
 function handleExportExcel() {
   exportRelatorioExcel(getExportData());
 }
@@ -197,7 +197,7 @@ const moduleTone: Record<string, string> = {
           <Button variant="outline" @click="handlePrint"><Printer class="h-4 w-4" /> Imprimir</Button>
           <Button variant="outline" @click="handleExportExcel"><FileSpreadsheet class="h-4 w-4" /> Exportar Planilha</Button>
           <Button variant="outline" @click="handleExportPDF"><FileDown class="h-4 w-4" /> Relatório Completo</Button>
-          <Button @click="handleExportAnalisePDF"><FileDown class="h-4 w-4" /> Análise Executiva</Button>
+          <!-- <Button @click="handleExportAnalisePDF"><FileDown class="h-4 w-4" /> Análise Executiva</Button> -->
         </div>
       </template>
     </PageHeader>
