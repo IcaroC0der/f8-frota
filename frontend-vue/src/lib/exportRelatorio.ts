@@ -823,7 +823,7 @@ export function exportAnalisePDF(data: ReportData) {
  * Relatório por Veículo — uma página por placa selecionada, com KPIs de custo
  * (total + por módulo) e o detalhamento dos lançamentos. Identidade F8.
  * ========================================================================== */
-export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[]; periodLabel?: string }) {
+export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[]; periodLabel?: string; fuelRecords?: any[] }) {
   const doc = new jsPDF("p", "pt", "a4");
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -938,6 +938,51 @@ export function exportVeiculosPDF(data: { vehicles: any[]; rows: any[]; periodLa
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(13);
     doc.text(inds[i].v, ix + indW / 2, 520, { align: "center" });
+  }
+
+  // ---- Preço médio por combustível (capa) ----
+  if (data.fuelRecords?.length) {
+    const selP = new Set(data.vehicles.map((v) => v.plate));
+    const fRecs = data.fuelRecords.filter((r) => selP.has(r.plate) && r.unit === "LT" && Number(r.quantity) > 0
+      && (!data.periodLabel || true));
+    const fuelAcc: Record<string, { cost: number; liters: number; count: number }> = {};
+    for (const r of fRecs) {
+      const t = r.cost_type || "N/A";
+      const b = (fuelAcc[t] ??= { cost: 0, liters: 0, count: 0 });
+      b.cost += Number(r.total_value || 0);
+      b.liters += Number(r.quantity);
+      b.count++;
+    }
+    const fuelTypes = Object.entries(fuelAcc).sort((a, b) => b[1].count - a[1].count);
+    if (fuelTypes.length) {
+      const fuelY = 570;
+      doc.setTextColor(255, 213, 0);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.text("PREÇO MÉDIO POR COMBUSTÍVEL (R$/L)", pageWidth / 2, fuelY, { align: "center" });
+
+      const cols = Math.min(fuelTypes.length, 4);
+      const fW = (contentW - (cols - 1) * 10) / cols;
+      let fRow = 0;
+      fuelTypes.forEach(([type, v], i) => {
+        const col = i % cols;
+        if (i > 0 && col === 0) fRow++;
+        const fx = margin + col * (fW + 10);
+        const fy = fuelY + 14 + fRow * 56;
+        doc.setFillColor(38, 38, 38);
+        doc.roundedRect(fx, fy, fW, 48, 5, 5, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text(type, fx + 8, fy + 16);
+        doc.setTextColor(255, 213, 0);
+        doc.setFontSize(11);
+        doc.text(`R$ ${(v.liters > 0 ? v.cost / v.liters : 0).toFixed(4).replace(".", ",")}`, fx + 8, fy + 32);
+        doc.setTextColor(160, 160, 160);
+        doc.setFontSize(7);
+        doc.text(`${Math.round(v.liters).toLocaleString("pt-BR")} L  ·  ${v.count} abast.`, fx + 8, fy + 43);
+      });
+    }
   }
 
   // ---- uma página por veículo ----

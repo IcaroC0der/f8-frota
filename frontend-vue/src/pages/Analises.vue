@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { BarChart2, Wrench, Fuel } from "lucide-vue-next";
+import { BarChart2, Wrench, Fuel, Truck } from "lucide-vue-next";
 import { fuelRecords, maintenanceRecords, operationalCostRecords, vehicles } from "@/services/api";
 import PageHeader from "@/components/ui/PageHeader.vue";
 import TabNav from "@/components/ui/TabNav.vue";
@@ -9,6 +9,7 @@ import Spinner from "@/components/ui/Spinner.vue";
 import AnaliseGeral from "@/pages/analises/AnaliseGeral.vue";
 import AnaliseManutencao from "@/pages/analises/AnaliseManutencao.vue";
 import AnaliseAbastecimento from "@/pages/analises/AnaliseAbastecimento.vue";
+import AnaliseVeiculos from "@/pages/analises/AnaliseVeiculos.vue";
 
 const route = useRoute();
 const loading = ref(true);
@@ -21,6 +22,7 @@ const tabs = [
   { id: "geral", label: "Visão Geral", icon: BarChart2 },
   { id: "manutencao", label: "Manutenção", icon: Wrench },
   { id: "abastecimento", label: "Abastecimento", icon: Fuel },
+  { id: "veiculos", label: "Veículos", icon: Truck },
 ];
 const tab = ref(typeof route.query.tab === "string" && tabs.some((t) => t.id === route.query.tab) ? (route.query.tab as string) : "geral");
 
@@ -49,6 +51,7 @@ onMounted(async () => {
       <AnaliseGeral v-if="tab === 'geral'" :fuel="fuel" :maint="maint" :oper="oper" :vehicles="fleet" />
       <AnaliseManutencao v-else-if="tab === 'manutencao'" :records="maint" :vehicles="fleet" />
       <AnaliseAbastecimento v-else-if="tab === 'abastecimento'" :records="fuel" :vehicles="fleet" />
+      <AnaliseVeiculos v-else-if="tab === 'veiculos'" :fuel="fuel" :maint="maint" :oper="oper" :vehicles="fleet" />
     </template>
   </div>
 </template>

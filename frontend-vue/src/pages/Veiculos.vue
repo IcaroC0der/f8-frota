@@ -107,6 +107,7 @@ const reportFrom = ref("");
 const reportTo = ref("");
 const selectedPlates = ref<string[]>([]);
 const reportRows = ref<any[]>([]);
+const rawFuelRecords = ref<any[]>([]);
 const recordsLoaded = ref(false);
 const loadingRecords = ref(false);
 
@@ -119,6 +120,7 @@ async function ensureRecords() {
       maintenanceRecords.list({ limit: 10000 }),
       operationalCostRecords.list({ limit: 10000 }),
     ]);
+    rawFuelRecords.value = fuel;
     reportRows.value = [
       ...fuel.map((r: any) => ({ plate: r.plate ?? "", module: "Abastecimento", description: r.cost_type, total_value: Number(r.total_value || 0), date: r.date })),
       ...maint.map((r: any) => ({ plate: r.plate ?? "", module: "Manutenção", description: `${r.classification} / ${r.cost_type}`, total_value: Number(r.total_value || 0), date: r.date })),
@@ -178,7 +180,8 @@ async function exportReport() {
   const sel = items.value.filter((v) => selectedPlates.value.includes(v.plate));
   const f = reportFrom.value, t = reportTo.value;
   const rows = reportRows.value.filter((r) => (!f || r.date >= f) && (!t || r.date <= t));
-  exportVeiculosPDF({ vehicles: sel, rows, periodLabel: reportPeriodLabel() });
+  const fuelFiltered = rawFuelRecords.value.filter((r: any) => (!f || r.date >= f) && (!t || r.date <= t));
+  exportVeiculosPDF({ vehicles: sel, rows, periodLabel: reportPeriodLabel(), fuelRecords: fuelFiltered });
   reportOpen.value = false;
 }
 </script>
