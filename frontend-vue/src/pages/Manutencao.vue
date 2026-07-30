@@ -20,6 +20,7 @@ import ChartLegend from "@/components/ui/ChartLegend.vue";
 import FilterBar from "@/components/ui/FilterBar.vue";
 import FormField from "@/components/ui/FormField.vue";
 import Spinner from "@/components/ui/Spinner.vue";
+import SearchSelect from "@/components/ui/SearchSelect.vue";
 
 const MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const isPrev = (c?: string) => !!c && c.toUpperCase().includes("PREVENTIV");
@@ -165,6 +166,22 @@ const barOptions = {
 };
 
 // Selects em cascata: classificação → grupo → tipo
+const vehicleOpts = computed(() =>
+  vehicleList.value
+    .filter((v) => v.plate)
+    .sort((a, b) => a.plate.localeCompare(b.plate))
+    .map((v) => ({ value: v.plate, label: `${v.plate} — ${v.vehicle_model || "S/MODELO"}` })),
+);
+const classifOpts = computed(() =>
+  classifications.value.map((c) => ({ value: c.name, label: c.name })),
+);
+const groupOpts = computed(() =>
+  groups.value.map((g) => ({ value: g, label: g })),
+);
+const typeOpts = computed(() =>
+  types.value.map((t) => ({ value: t.cost_type, label: t.cost_type })),
+);
+
 const groups = computed(() => [
   ...new Set(
     costTypes.value
@@ -428,29 +445,17 @@ async function submit() {
       <div class="grid grid-cols-2 gap-3">
         <FormField label="Data" required><input v-model="form.date" type="date" class="ui-input" /></FormField>
         <FormField label="Veículo (Placa)" required>
-          <select v-model="form.plate" class="ui-input" @change="onPlate">
-            <option value="">Selecione...</option>
-            <option v-for="v in vehicleList" :key="v.id" :value="v.plate">{{ v.plate }} — {{ v.vehicle_model }}</option>
-          </select>
+          <SearchSelect v-model="form.plate" :options="vehicleOpts" placeholder="Buscar placa..." @change="onPlate" />
         </FormField>
         <FormField label="Categoria (auto)"><input :value="form.category_name" readonly class="ui-input bg-muted/50" placeholder="Automático" /></FormField>
         <FormField label="Classificação" required>
-          <select v-model="form.classification" class="ui-input" @change="onClassification">
-            <option value="">Selecione...</option>
-            <option v-for="c in classifications" :key="c.id" :value="c.name">{{ c.name }}</option>
-          </select>
+          <SearchSelect v-model="form.classification" :options="classifOpts" placeholder="Selecione..." @change="onClassification" />
         </FormField>
         <FormField label="Custo (Grupo)" required>
-          <select v-model="form.cost_group" class="ui-input" :disabled="!form.classification" @change="onGroup">
-            <option value="">Selecione...</option>
-            <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
-          </select>
+          <SearchSelect v-model="form.cost_group" :options="groupOpts" :disabled="!form.classification" placeholder="Selecione..." @change="onGroup" />
         </FormField>
         <FormField label="Tipo de Custo" required>
-          <select v-model="form.cost_type" class="ui-input" :disabled="!form.cost_group">
-            <option value="">Selecione...</option>
-            <option v-for="t in types" :key="t.id" :value="t.cost_type">{{ t.cost_type }}</option>
-          </select>
+          <SearchSelect v-model="form.cost_type" :options="typeOpts" :disabled="!form.cost_group" placeholder="Selecione..." />
         </FormField>
         <FormField label="Valor Total (R$)" required><input v-model.number="form.total_value" type="number" step="0.01" class="ui-input" /></FormField>
         <FormField label="KM"><input v-model.number="form.km" type="number" class="ui-input" /></FormField>

@@ -20,6 +20,7 @@ import ChartLegend from "@/components/ui/ChartLegend.vue";
 import FilterBar from "@/components/ui/FilterBar.vue";
 import FormField from "@/components/ui/FormField.vue";
 import Spinner from "@/components/ui/Spinner.vue";
+import SearchSelect from "@/components/ui/SearchSelect.vue";
 
 const { items, loading, saving, fetchAll, create, update, remove } =
   useResource<OperationalCostRecord>(operationalCostRecords, {
@@ -181,6 +182,18 @@ const emptyForm = () => ({
   supplier: "", invoice_number: "", attachment_url: "", observation: "",
 });
 const form = reactive(emptyForm());
+
+const costNameFormOpts = computed(() =>
+  costList.value
+    .map((c) => ({ value: c.name, label: c.name }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+);
+const vehicleFormOpts = computed(() =>
+  vehicleList.value
+    .filter((v) => v.plate)
+    .sort((a, b) => a.plate.localeCompare(b.plate))
+    .map((v) => ({ value: v.plate, label: `${v.plate} — ${v.vehicle_model || "S/MODELO"}` })),
+);
 
 function onPlate() {
   const v = vehByPlate.value[form.plate];
@@ -386,16 +399,10 @@ async function confirmDelete() {
       <div class="grid grid-cols-2 gap-3">
         <FormField label="Data" required><input v-model="form.date" type="date" class="ui-input" /></FormField>
         <FormField label="Tipo de Custo" required>
-          <select v-model="form.cost_name" class="ui-input">
-            <option value="">Selecione...</option>
-            <option v-for="c in costList" :key="c.id" :value="c.name">{{ c.name }}</option>
-          </select>
+          <SearchSelect v-model="form.cost_name" :options="costNameFormOpts" placeholder="Buscar custo..." />
         </FormField>
         <FormField label="Veículo (Placa) — opcional">
-          <select v-model="form.plate" class="ui-input" @change="onPlate">
-            <option value="">Sem veículo</option>
-            <option v-for="v in vehicleList" :key="v.id" :value="v.plate">{{ v.plate }} — {{ v.vehicle_model }}</option>
-          </select>
+          <SearchSelect v-model="form.plate" :options="vehicleFormOpts" placeholder="Buscar placa..." @change="onPlate" />
         </FormField>
         <FormField label="Valor Total (R$)" required><input v-model.number="form.total_value" type="number" step="0.01" class="ui-input" /></FormField>
         <FormField label="Fornecedor"><input v-model="form.supplier" class="ui-input" /></FormField>
